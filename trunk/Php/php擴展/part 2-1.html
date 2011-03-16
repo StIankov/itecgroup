@@ -1,0 +1,1343 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-US" dir="ltr">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>编写扩展 II：参数、数组和ZVALs</title>
+
+<meta name="Rating" content="General">
+<meta name="Distribution" content="Global">
+<meta name="Revisit-After" content="3 Days">
+<meta name="Copyright" content="1999-2006 Zend Technologies Ltd.">
+<meta name=" WT.cg_n" content="_Zend DevZone">
+<meta name="WT.seg_1" content="Community"> 
+<meta name="keywords" content="php, best practices, samples, articles, news, community, knowledge, curl, Extension, Tutorials">
+
+<link rel="alternate" title="Zend Developer Zone - Home Page RSS Feed" href="http://feeds.feedburner.com/ZendDeveloperZone" type="application/rss+xml">  
+<link rel="alternate" title="Zend Developer Zone - Home Page Atom Feed" href="http://feeds.feedburner.com/ZendDeveloperZone" type="application/atom+xml">  
+<link rel="shortcut icon" href="favicon.ico"><!--Fireclick implementation-->
+
+<link rel="stylesheet" type="text/css" href="index.css" media="all"></head><body><img src="untitled" alt="" style="position: absolute; left: -9999px;">
+
+		<div id="container">
+			
+			<div id="middle">
+
+               <div id="content" class="article-page">
+         	   
+	     <h1 id="page-heading">编写扩展 II：参数、数组和ZVALs</h1>
+	   <div class="article-info tag-list"> 
+	   		  <a href="http://devzone.zend.com/tag/curl">curl</a>&nbsp;&nbsp;
+	   		  <a href="http://devzone.zend.com/tag/Extension">扩展</a>&nbsp;&nbsp;
+	   		  <a href="http://devzone.zend.com/tag/Tutorials">教程</a>&nbsp;&nbsp;
+	   	   </div>       
+	   <div class="article-info">
+		   <span class="article-by">by <a href="http://devzone.zend.com/member/86-Cal-Evans-editor" title="Author profile and contributions">			 Sara Golemon</a></span>
+           <span class="comment-block"> | Sunday, June 5, 2005 
+           </span>		   
+        </div>
+		<div class="clearfix"></div><br>
+
+		<!-- META
+Author: Sara Golemon
+Title:  Extension Writing Part II: Parameters, Arrays, and ZVALs
+Date:   5th June 2005
+-->
+<div>
+
+<p>
+<a href="#Heading1">介绍</a><br>
+<a href="#Heading2">接收数值</a><br>
+<a href="#Heading3">ZVAL</a><br>
+<a href="#Heading4">创建ZVALs</a><br>
+<a href="#Heading5">数组</a><br>
+<a href="#Heading6">符号表作为数组</a><br>
+<a href="#Heading7">引用计数</a><br>
+  . <a href="part 2-2.html#Heading8">拷贝 vs 引用</a><br>
+  . <a href="part 2-2.html#Heading9">核对（代码）完整性</a><br>
+  . <a href="part 2-2.html#Heading10">下一步是什么？</a><br>
+</p>
+
+<a name="Heading1"></a><h3>介绍</h3>
+<p>
+在本系列的<a href="part 1.html">第一部分</a>，你了解了PHP扩展的基本结构。你声明了向调用脚本返回静态或者动态值的简单函数，定义INI选项，声明内部数值（全局的）。本教程中，你将看到如何接收从调用脚本传入函数的数值，以及<b>PHP</b>和<b>Zend引擎</b>如何操作内部的变量。
+</p>
+
+<a name="Heading2"></a><h3>接收数值</h3>
+<p>
+与用户空间的代码不同，内部函数的参数实际上并不是在函数头部声明的，而是将参数列表的地址传入每个函数－不论是否传入了参数－而且，函数可以让Zend引擎将它们转为便于使用的东西。
+</p>
+
+<p>
+我们通过定义新函数<code>hello_greetme()</code>来看一下，它将接收一个参数然后把它与一些问候的文本一起输出。和以前一样，我们将在三个地方增加代码：
+</p>
+
+<p>
+在<i>php_hello.h</i>中，靠近其他的函数原型声明处：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_greetme);
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+在<i>hello.c</i>中，<code>hello_functions</code>结构的底部：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+    PHP_FE(hello_bool, NULL)<br>
+    PHP_FE(hello_null, NULL)<br>
+    PHP_FE(hello_greetme, NULL)<br>
+    {NULL, NULL, NULL}<br>
+};
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+以及<i>hello.c</i>底部靠近其他函数的后面：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_greetme)<br>
+{<br>
+    char *name;<br>
+    int name_len;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s",
+	    &amp;name, &amp;name_len) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    php_printf("Hello %s\n", name);<br>
+<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+大多数<code>zend_parse_parameters()</code>块看起来是总是一样的。<code>ZEND_NUM_ARGS()</code>告诉Zend引擎要取得的参数的信息，<code>TSRMLS_CC</code>用来确保线程安全，返回值将被检查是<code>SUCCESS</code>还是<code>FAILURE</code>。通常情况下，<code>zend_parse_parameters()</code>将返回<code>SUCCESS</code>；然而，如果调用脚本试图传入太多或太少的参数，或者传入的参数不能被转为适当的类型，Zend会自动输出一条错误信息并优雅地将控制权还给调用脚本。
+</p>
+
+<p>
+本例指定<code>s</code>表明此函数期望只传入一个参数，而且该参数应该被转为<code>string</code>数据类型并装入通过地址传入的<code>char*</code>变量（也就是通过name）。
+</p>
+
+<p>
+注意，还有一个<code>int</code>变量通过地址被传入<code>zend_parse_parameters()</code>。这使Zend引擎提供字符串的字节长度，如此二进制安全的函数不再需要依赖<code>strlen(name)</code>确定字符串的长度。实际上使用<code>strlen(name)</code>甚至得不到正确的结果，因为<code>name</code>可能在字符串结束之前包含一个或多个<code>NULL</code>字符。
+</p>
+
+<p>
+一旦你的函数确切地得到了<code>name</code>参数，接下来要做的就是把它作为正式问候语的一部分输出。注意，用的是<code>php_printf()</code>而不是更熟悉的<code>printf()</code>。使用这个函数是有重要的理由的。首先，它允许字符串通过PHP的缓冲机制的处理，该机制除了可以缓冲数据，还可执行额外的处理，比如gzip压缩。其次，虽然<code>stdout</code>是极佳的输出目标，使用CLI或CGI时，多数SAPI期望通过特定的pipe或socket传来输出。所以，试图只是通过<code>printf()</code>写入<code>stdout</code>可能导致数据丢失、次序颠倒或者被破坏，因为它绕过了预处理。
+</p>
+
+<p>
+最后，函数通过返回<code>TRUE</code>将控制权还给调用程序。你可以没有显式地返回值（默认是<code>NULL</code>）而是让控制到达你的函数的结尾，但这是坏习惯。函数如果不传回任何有意义的结果，应该返回<code>TRUE</code>以说明：“完成任务，一切正常”。
+</p>
+
+<p>
+PHP字符串实际可能包含<code>NULL</code>值，所以，输出含有<code>NULL</code>的二进制安全的字符串以及后跟<code>NULL</code>的多个字符的方法是，使用下面的代码块替换<code>php_printf()</code>指令：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+    php_printf("Hello ");<br>
+    PHPWRITE(name, name_len);<br>
+    php_printf("\n");
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+这段代码使用<code>php_printf()</code>处理确信没有<code>NULL</code>的字符串，但使用另外的宏－<code>PHPWRITE</code>－处理用户提供的字符串。这个宏接受<code>zend_parse_parameters()</code>提供的长度（<code>name_len</code>）参数以便可以打印<code>name</code>的完整内容，不论它是否含有<code>NULL</code>。
+</p>
+
+<p>
+<code>zend_parse_parameters()</code>也会处理可选参数。下一个例子中，你将创建一个函数，它期望一个<code>long</code>（PHP的整数类型）、一个<code>double</code>（浮点）和一个可选的<code>Boolean</code>值。这个函数在用户空间的声明可能像这样：
+</p>
+
+<code>
+<span style="color: rgb(0, 0, 187);">function hello_add</span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">,</span> <span style="color: rgb(0, 0, 187);">$b</span><span style="color: rgb(0, 119, 0);">,</span> <span style="color: rgb(0, 0, 187);">$return_long</span> <span style="color: rgb(0, 119, 0);">=</span> <span style="color: rgb(0, 0, 187);">false</span><span style="color: rgb(0, 119, 0);">) {<br>
+<br></span>
+    <span style="color: rgb(0, 0, 187);">$sum</span> <span style="color: rgb(0, 119, 0);">= (int)</span><span style="color: rgb(0, 0, 187);">$a</span> <span style="color: rgb(0, 119, 0);">+ (float)</span><span style="color: rgb(0, 0, 187);">$b</span><span style="color: rgb(0, 119, 0);">;</span><br>
+
+    <span style="color: rgb(0, 119, 0);">if (</span><span style="color: rgb(0, 0, 187);">$return_long</span><span style="color: rgb(0, 119, 0);">) {</span><br>
+        <span style="color: rgb(0, 119, 0);">return</span> <span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.intval.html">intval</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$sum</span><span style="color: rgb(0, 119, 0);">);</span><br>
+    <span style="color: rgb(0, 119, 0);">} else {</span><br>
+        <span style="color: rgb(0, 119, 0);">return</span> <span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.floatval.html">floatval</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$sum</span><span style="color: rgb(0, 119, 0);">);</span><br>
+    <span style="color: rgb(0, 119, 0);">}<br>
+}</span>
+</code>
+
+<p>
+在C语言中，这个函数类似下面的代码（不要忘记在<i>php_hello.h</i>和<i>hello.c</i>的<code>hello_functions[]</code>中加入相关条目以启用它）：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_add)<br>
+{<br>
+    long a;<br>
+    double b;<br>
+    zend_bool return_long = 0;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ld|b",
+        &amp;a, &amp;b, &amp;return_long) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    if (return_long) {<br>
+        RETURN_LONG(a + b);<br>
+    } else {<br>
+        RETURN_DOUBLE(a + b);<br>
+    }<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+这次你的数据类型字符串读起来像：“我要一个long（<code>l</code>），一个double（<code>d</code>）”。下一个管道字符表示其余的参数是可选的。如果函数调用时没有传入可选参数，那么<code>zend_parse_parameters()</code>将不会改变传给它的对应变量。最后的<code>b</code>当然是用于Boolean。数据类型字符串后面的是<code>a</code>、<code>b</code>和<code>return_long</code>，它们按地址传递，这样<code>zend_parse_parameters()</code>可以将值装入它们。
+</p>
+
+<p>
+警告：在32位平台中经常不加区分地使用<code>int</code>和<code>long</code>，但是，当你的代码在64位硬件上编译时，在本该使用一个的地方使用另一个是很危险的。所以记住要把<code>long</code>用于整型，把<code>int</code>用于字符串的长度。
+</p>
+
+<p>
+<i>表 1</i>显示不同的类型和对应的字母代码，以及可用于<code>zend_parse_parameters()</code>的C类型：
+</p>
+
+<table class="tutorialTable">
+  <tbody><tr>
+    <th colspan="3">表 1：类型和用在zend_parse_parameters()中的字母代码</th>
+  </tr>
+
+  <tr valign="top">
+    <th>类型</th>
+
+    <th>代码</th>
+
+    <th>变量类型</th>
+  </tr>
+
+  <tr valign="top">
+    <td>Boolean</td>
+
+    <td><code>b
+</code>
+</td>
+
+    <td><code>zend_bool
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td>Long</td>
+
+    <td><code>l
+</code>
+</td>
+
+    <td><code>long
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td>Double</td>
+
+    <td><code>d
+</code>
+</td>
+
+    <td><code>double
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td>String</td>
+
+    <td><code>s
+</code>
+</td>
+
+    <td><code>char*, int
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td>Resource</td>
+
+    <td><code>r
+</code>
+</td>
+
+    <td><code>zval*
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td>Array</td>
+
+    <td><code>a
+</code>
+</td>
+
+    <td><code>zval*
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td>Object</td>
+
+    <td><code>o
+</code>
+</td>
+
+    <td><code>zval*
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td>zval</td>
+
+    <td><code>z
+</code>
+</td>
+
+    <td><code>zval*
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+你可能立刻注意到<i>表 1</i>中的最后四个类型都是<code>zval*</code>。待会儿你将看到，PHP中实际使用<code>zval</code>数据类型存储所有的用户空间变量。三种“复杂”数据类型，资源、数组和对象，当它们的数据类型代码被用于<code>zend_parse_parameters()</code>时，Zend引擎会进行类型检查，但是因为在C中没有与它们对应的数据类型，所以不会执行类型转换。
+</p>
+
+<a name="Heading3"></a><h3>ZVAL</h3>
+<p>
+一般而言，<code>zval</code>和PHP用户空间变量是要你费脑筋（wrap your head around）的最困难的概念。它们也将是至关重要的。首先我们考查<code>zval</code>的结构：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+struct {<br>
+    union {<br>
+        long lval;<br>
+        double dval;<br>
+        struct {<br>
+            char *val;<br>
+            int len;<br>
+        } str;<br>
+        HashTable *ht;<br>
+        zend_object_value obj;<br>
+    } value;<br>
+    zend_uint refcount;<br>
+    zend_uchar type;<br>
+    zend_uchar is_ref;<br>
+} zval;
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+如你所见，通常每个<code>zval</code>具有三个基本的元素：<code>type</code>、<code>is_ref</code>和<code>refcount</code>。<code>is_ref</code>和<code>refcount</code>将在本教程的稍候讲解；现在让我们关注<code>type</code>。
+</p>
+
+<p>
+到如今你应该已经熟悉了PHP的八种数据类型。它们是表1种列出的七种，再加上<code>NULL</code>－虽然实际的字面意义是什么也没有（或许这就是原因），是特殊（unto its own）的类型。给定一个具体的<code>zval</code>，可用三个便利的宏中的一个测试它的类型：<code>Z_TYPE(zval)</code>、<code>Z_TYPE_P(zval*)</code>或<code>Z_TYPE_PP(zval**)</code>。三者之间仅有的功能上的区别在于传入的变量所期望的间接的级别。其他的宏也遵从相同的关于<code>_P</code>和<code>_PP</code>的使用约定，例如你将要看到的宏<code>*VAL</code>。
+</p>
+
+<p>
+<code>type</code>的值决定<code>zval</code>的<code>value</code>联合的哪个部分被设置。下面的代码片断演示了一个缩微版本的<code>var_dump()</code>：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_dump)<br>
+{<br>
+    zval *uservar;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z",
+	    &amp;uservar) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    switch (Z_TYPE_P(uservar)) {<br>
+        case IS_NULL:<br>
+            php_printf("NULL\n");<br>
+            break;<br>
+        case IS_BOOL:<br>
+            php_printf("Boolean: %s\n", Z_LVAL_P(uservar) ? "TRUE" : "FALSE");<br>
+            break;<br>
+        case IS_LONG:<br>
+            php_printf("Long: %ld\n", Z_LVAL_P(uservar));<br>
+            break;<br>
+        case IS_DOUBLE:<br>
+            php_printf("Double: %f\n", Z_DVAL_P(uservar));<br>
+            break;<br>
+        case IS_STRING:<br>
+            php_printf("String: ");<br>
+            PHPWRITE(Z_STRVAL_P(uservar), Z_STRLEN_P(uservar));<br>
+            php_printf("\n");<br>
+            break;<br>
+        case IS_RESOURCE:<br>
+            php_printf("Resource\n");<br>
+            break;<br>
+        case IS_ARRAY:<br>
+            php_printf("Array\n");<br>
+            break;<br>
+        case IS_OBJECT:<br>
+            php_printf("Object\n");<br>
+            break;<br>
+        default:<br>
+            php_printf("Unknown\n");<br>
+    }<br>
+<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+</tr>
+</tbody></table>
+
+<p>
+如你所见，数据类型<code>Boolean</code>和<code>long</code>共享同样的内部元素。如同本系列第一部分中用的<code>RETURN_BOOL()</code>，<code>FALSE</code>用0表示，<code>TRUE</code>用1表示。
+</p>
+
+<p>
+当使用<code>zend_parse_parameters()</code>请求一个特定的数据类型时，例如<code>string</code>，Zend引擎检查输入变量的数据类型。如果匹配，Zend只是通过将其传入<code>zval</code>的对应部分来得到正确的数据类型。如果是不同的类型，Zend使用通常的类型转换规则将其转为适当的和／或可能的类型。
+</p>
+
+<p>
+修改前面实现的<code>hello_greetme()</code>函数，将它分成小一些的（功能）片断：
+</p>
+
+<table class="tutorialExample">
+<tbody><tr>
+<td>
+<code>
+PHP_FUNCTION(hello_greetme)<br>
+{<br>
+    zval *zname;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z",
+	    &amp;zname) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    convert_to_string(zname);<br>
+<br>
+    php_printf("Hello ");<br>
+    PHPWRITE(Z_STRVAL_P(zname), Z_STRLEN_P(zname));<br>
+    php_printf("\n");<br>
+<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+这次，<code>zend_parse_parameters()</code>只是获取一个PHP变量（<code>zval</code>），忽略其类型，接着显式地将该变量转为<code>字符串</code>（类似于<code>$zname = (string)$zname;</code>），然后使用<code>zname</code>结构的字符串值调用<code>php_printf()</code>。正如你所猜测的那样，存在其它可用于<code>bool</code>、<code>long</code>和<code>double</code>的<code>convert_to_*()</code>函数。
+</p>
+
+<a name="Heading4"></a><h3>创建ZVAL</h3>
+<p>
+至今为止，你用到的<code>zval</code>已由Zend引擎分配空间，也通过同样的途径释放。然而有时候需要创建你自己的<code>zval</code>。考虑下面的代码段：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+{<br>
+    zval *temp;<br>
+<br>
+    ALLOC_INIT_ZVAL(temp);<br>
+<br>
+    Z_TYPE_P(temp) = IS_LONG;<br>
+    Z_LVAL_P(temp) = 1234;<br>
+<br>
+    zval_ptr_dtor(&amp;temp);<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+<code>ALLOC_INIT_ZVAL()</code>，如名所示，为<code>zval*</code>分配内存并把它初始化为一个新变量。那样之后，可用<code>Z_*_P()</code>设置该变量的类型和值。<code>zval_ptr_dtor()</code>处理繁重的清理变量内存工作。
+</p>
+
+<p>
+那两个<code>Z_*_P()</code>调用实际可以被归为一条件但的语句：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+ZVAL_LONG(temp, 1234);
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+对于其他类型也存在相似的宏，并且遵循和本系列第一部分中出现的<code>RETURN_*()</code>相同的语法规则。实际上宏<code>RETURN_*()</code>只是对<code>RETVAL_*()</code>薄薄的一层包装，再深入则是<code>ZVAL_*()</code>。下面的五个版本都是相同的：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+RETURN_LONG(42);<br>
+<br>
+RETVAL_LONG(42);<br>
+return;<br>
+<br>
+ZVAL_LONG(return_value, 42);<br>
+return;<br>
+<br>
+Z_TYPE_P(return_value) = IS_LONG;<br>
+Z_LVAL_P(return_value) = 42;<br>
+return;<br>
+<br>
+return_value-&gt;type = IS_LONG;<br>
+return_value-&gt;value.lval = 42;<br>
+return;
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+如果你很敏锐，你会思考如何定义它们才能实现在类似<code>hello_long()</code>函数中的使用方式。“<code>return_value</code>从哪儿来？为什么它不用<code>ALLOC_INIT_ZVAL()</code>分配内存？”，你可能会疑惑。
+</p>
+
+<p>
+在日常的扩展开发中，你可能不知道<code>return_value</code>实际是在每个<code>PHP_FUNCTION()</code>原型定义中定义的函数参数。Zend引擎给它分配内存并将其初始化为<code>NULL</code>，这样即使你的函数没有显式地设置它，返回值仍然是可用的。当你的内部函数执行结束，该值被返回到调用程序，或者被释放－如果调用程序被写为忽略返回值。
+</p>
+
+<a name="Heading5"></a><h3>数组</h3>
+<p>
+因为你之前用过PHP，你已经承认了数组作为运载其他变量的变量。这种方式在内部实现上使用了众所周知的<code>HashTable</code>。要创建将被返回PHP的数组，最简单的方法涉及使用表2中列举的函数：
+</p>
+
+<table class="tutorialTable">
+  <tbody><tr>
+    <th colspan="3">表 2：zval数组创建函数</th>
+  </tr>
+
+  <tr valign="top">
+    <th>PHP语法</th>
+
+    <th>C语法（arr是zval*）</th>
+
+    <th>意义</th>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr = array();
+</code>
+</td>
+
+    <td><code>array_init(arr);
+</code>
+</td>
+
+    <td>初始化一个新数组</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[] = NULL;
+</code>
+</td>
+
+    <td><code>add_next_index_null(arr);
+</code>
+</td>
+
+    <td rowspan="6" valign="middle">向数字索引的数组增加指定类型的值</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[] = 42;
+</code>
+</td>
+
+    <td><code>add_next_index_long(arr, 42);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[] = true;
+</code>
+</td>
+
+    <td><code>add_next_index_bool(arr, 1);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[] = 3.14;
+</code>
+</td>
+
+    <td><code>add_next_index_double(arr, 3.14);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[] = 'foo';
+</code>
+</td>
+
+    <td><code>add_next_index_string(arr, "foo", 1);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[] = $myvar;
+</code>
+</td>
+
+    <td><code>add_next_index_zval(arr, myvar);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[0] = NULL;
+</code>
+</td>
+
+    <td><code>add_index_null(arr, 0);
+</code>
+</td>
+
+    <td rowspan="6" valign="middle">向数组中指定的数字索引增加指定类型的值</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[1] = 42;
+</code>
+</td>
+
+    <td><code>add_index_long(arr, 1, 42);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[2] = true;
+</code>
+</td>
+
+    <td><code>add_index_bool(arr, 2, 1);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[3] = 3.14;
+</code>
+</td>
+
+    <td><code>add_index_double(arr, 3, 3.14);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[4] = 'foo';
+</code>
+</td>
+
+    <td><code>add_index_string(arr, 4, "foo", 1);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr[5] = $myvar;
+</code>
+</td>
+
+    <td><code>add_index_zval(arr, 5, myvar);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr['abc'] = NULL;
+</code>
+</td>
+
+    <td><code>add_assoc_null(arr, "abc");
+</code>
+</td>
+
+    <td rowspan="6" valign="middle">向关联索引的数组增加指定类型的值</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr['def'] = 711;
+</code>
+</td>
+
+    <td><code>add_assoc_long(arr, "def", 711);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr['ghi'] = true;
+</code>
+</td>
+
+    <td><code>add_assoc_bool(arr, "ghi", 1);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr['jkl'] = 1.44;
+</code>
+</td>
+
+    <td><code>add_assoc_double(arr, "jkl", 1.44);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr['mno'] = 'baz';
+</code>
+</td>
+
+    <td><code>add_assoc_string(arr, "mno", "baz", 1);
+</code>
+</td>
+  </tr>
+
+  <tr valign="top">
+    <td><code>$arr['pqr'] = $myvar;
+</code>
+</td>
+
+    <td><code>add_assoc_zval(arr, "pqr", myvar);
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+同<code>RETURN_STRING()</code>宏一样，<code>add_*_string()</code>函数的最后一个参数接受1或0来指明字符串内容是否被拷贝。它们各自都有形如<code>add_*_stringl()</code>的对应版本。<code>l</code>表示会显式提供字符串长度（而不是让Zend引擎调用<code>strval()</code>来得到这个值，该函数不是二进制安全的）。
+</p>
+
+<p>
+使用二进制安全的形式很简单，只需要在（表示）复制的参数前面指定长度，像这样：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+add_assoc_stringl(arr, "someStringVar", "baz", 3, 1);
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+使用<code>add_assoc_*()</code>函数，数组的关键字假定不包含<code>NULL</code>－<code>add_assoc_*()</code> 函数自身对于关键字不是二进制安全的。不可使用带有<code>NULL</code>的关键字（实际上对象的受保护的和私有的属性已经使用了这种技术），可是如果必须这样做，当我们稍候使用<code>zend_hash_*()</code>函数时，你将立刻知道怎样实现。
+</p>
+
+<p>
+要实践学到的东西，创建下面的函数，它返回一个数组到调用程序。确定向<i>php_hello.h</i>和<code>hello_functions[]</code>中增加条目以使该函数得到适当地声明。
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_array)<br>
+{
+　　　　char *mystr;<br>
+　　　　zval *mysubarray;<br>
+<br>
+　　　　array_init(return_value);<br>
+<br>
+　　　　add_index_long(return_value, 42, 123);<br>
+<br>
+　　　　add_next_index_string(return_value, "I should now be found at index 43", 1);<br>
+<br>
+　　　　add_next_index_stringl(return_value, "I'm at 44!", 10, 1);<br>
+<br>
+　　　　mystr = estrdup("Forty Five");<br>
+　　　　add_next_index_string(return_value, mystr, 0);<br>
+<br>
+　　　　add_assoc_double(return_value, "pi", 3.1415926535);<br>
+<br>
+　　　　ALLOC_INIT_ZVAL(mysubarray);<br>
+　　　　array_init(mysubarray);<br>
+　　　　add_next_index_string(mysubarray, "hello", 1);<br>
+　　　　add_assoc_zval(return_value, "subarray", mysubarray);　　　　<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+构建扩展并查看<code>var_dump(hello_array());</code>的结果：
+</p>
+
+<blockquote>
+  <pre>array(6) {
+  [42]=&gt;
+  int(123)
+  [43]=&gt;
+  string(33) "I should now be found at index 43"
+  [44]=&gt;
+  string(10) "I'm at 44!"
+  [45]=&gt;
+  string(10) "Forty Five"
+  ["pi"]=&gt;
+  float(3.1415926535)
+  ["subarray"]=&gt;
+  array(1) {
+    [0]=&gt;
+    string(5) "hello"
+  }
+}
+</pre>
+</blockquote>
+
+<p>
+从数组中取回值意味着使用<code>ZENDAPI</code>的<code>zend_hash</code>族函数直接从<code>HashTable</code>中把它们作为<code>zval**</code>抽取出来。我们以接受一个数组为参数的简单函数开始：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+<span style="color: rgb(0, 0, 187);">function hello_array_strings</span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$arr</span><span style="color: rgb(0, 119, 0);">) {</span><br>
+    <br>
+    <span style="color: rgb(0, 119, 0);">if (!</span><span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.is-array.html">is_array</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$arr</span><span style="color: rgb(0, 119, 0);">)) return</span> <span style="color: rgb(0, 0, 187);">NULL</span><span style="color: rgb(0, 119, 0);">;</span><br>
+<br>
+    <span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.printf.html">printf</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(221, 0, 0);">"The array passed contains %d elements\n"</span><span style="color: rgb(0, 119, 0);">,</span> <span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.count.html">count</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$arr</span><span style="color: rgb(0, 119, 0);">));</span><br>
+<br>
+    <span style="color: rgb(0, 119, 0);">foreach(</span><span style="color: rgb(0, 0, 187);">$arr</span> <span style="color: rgb(0, 119, 0);">as</span> <span style="color: rgb(0, 0, 187);">$data</span><span style="color: rgb(0, 119, 0);">) {</span><br>
+        <span style="color: rgb(0, 119, 0);">if (</span><span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.is-string.html">is_string</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$data</span><span style="color: rgb(0, 119, 0);">)) <a href="http://devzone.zend.com/manual/view/page/function.echo.html">echo</a></span> <span style="color: rgb(221, 0, 0);">"$data\n"</span><span style="color: rgb(0, 119, 0);">;</span><br>
+    <span style="color: rgb(0, 119, 0);">}<br>
+}</span>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+或者，在C中：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_array_strings)<br>
+{<br>
+    zval *arr, **data;<br>
+    HashTable *arr_hash;<br>
+    HashPosition pointer;<br>
+    int array_count;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "a", &amp;arr) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    arr_hash = Z_ARRVAL_P(arr);<br>
+    array_count = zend_hash_num_elements(arr_hash);<br>
+<br>
+    php_printf("The array passed contains %d elements\n", array_count);<br>
+<br>
+    for(zend_hash_internal_pointer_reset_ex(arr_hash, &amp;pointer);
+	    zend_hash_get_current_data_ex(arr_hash, (void**) &amp;data, &amp;pointer) == SUCCESS;
+	    zend_hash_move_forward_ex(arr_hash, &amp;pointer)) {<br>
+<br>
+        if (Z_TYPE_PP(data) == IS_STRING) {<br>
+　　　　    PHPWRITE(Z_STRVAL_PP(data), Z_STRLEN_PP(data));<br>
+　　　　　　php_printf("\n");<br>
+　　　　}<br>
+    }<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+为了保持函数的简短，只输出了<code>字符串</code>类型的数组元素。你可能会奇怪，为什么不用之前在<code>hello_greetme()</code>函数中用过的<code>convert_to_string()</code>？我们来看看那样做怎么样；用下面的代码替换上面的<code>for</code>循环：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+for(zend_hash_internal_pointer_reset_ex(arr_hash, &amp;pointer);
+zend_hash_get_current_data_ex(arr_hash, (void**) &amp;data, &amp;pointer) == SUCCESS;
+zend_hash_move_forward_ex(arr_hash, &amp;pointer)) {<br>
+<br>
+	convert_to_string_ex(data);<br>
+	PHPWRITE(Z_STRVAL_PP(data), Z_STRLEN_PP(data));<br>
+	php_printf("\n");<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+现在重新编译扩展并运行下面的用户空间代码：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+<span style="color: rgb(0, 0, 187);">&lt;?php<br>
+    <br>
+    $a</span> <span style="color: rgb(0, 119, 0);">= array(</span><span style="color: rgb(221, 0, 0);">'foo'</span><span style="color: rgb(0, 119, 0);">,</span><span style="color: rgb(0, 0, 187);">123</span><span style="color: rgb(0, 119, 0);">);<br></span><span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.var-dump.html">var_dump</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">);<br></span><span style="color: rgb(0, 0, 187);">hello_array_strings</span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">);<br></span><span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.var-dump.html">var_dump</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">);<br>
+    <br></span><span style="color: rgb(0, 0, 187);">?&gt;</span>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+注意，原始数组被改变了！记住，<code>convert_to_*()</code>函数具有与调用<code>set_type()</code>相同的效果。由于处理的数组与传入的是同一个，此处改变它的类型将改变原始变量。要避免则需要首先制作一份<code>zval</code>的副本。为此，再次将<code>for</code>循环改成下面的代码：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+for(zend_hash_internal_pointer_reset_ex(arr_hash, &amp;pointer);
+    zend_hash_get_current_data_ex(arr_hash, (void**) &amp;data, &amp;pointer) == SUCCESS;
+    zend_hash_move_forward_ex(arr_hash, &amp;pointer)) {<br>
+<br>
+    zval temp;<br>
+<br>
+    temp = **data;<br>
+    zval_copy_ctor(&amp;temp);<br>
+    convert_to_string(&amp;temp);<br>
+    PHPWRITE(Z_STRVAL(temp), Z_STRLEN(temp));<br>
+    php_printf("\n");<br>
+    zval_dtor(&amp;temp);<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+这次更明显的－<code>temp = **data</code>－只是拷贝了原<code>zval</code>的<code>数据</code>，但由于<code>zval</code>可能含有类似<code>char*</code>字符串或<code>HashTable*</code>数组等额外已分配资源，这些相关的资源需要用<code>zval_copy_ctor()</code>进行复制。之后就是普通的转换、打印，以及最终用<code>zval_dtor()</code>去除这个副本用到的资源。
+</p>
+
+<p>
+如果你感到奇怪：为什么首次引入<code>convert_to_string()</code>时（参见hello_greetme()的第二个版本，功能被划分为小片断－译注）没做<code>zval_copy_ctor()</code>？那是因为向函数传入变量会自动地从原始变量分离出<code>zval</code>，拷贝一个副本。这始终只作用于<code>zval</code>的表层（on the base），所以，任何次级资源（例如数组元素和对象属性）在使用前仍然需要进行分离。
+</p>
+
+<p>
+既然已经看过了数组的值，我们稍微扩充下此次练习，也来看看（数组的）关键字：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+for(zend_hash_internal_pointer_reset_ex(arr_hash, &amp;pointer);
+    zend_hash_get_current_data_ex(arr_hash, (void**) &amp;data, &amp;pointer) == SUCCESS;
+    zend_hash_move_forward_ex(arr_hash, &amp;pointer)) {<br>
+<br>
+    zval temp;<br>
+    char *key;<br>
+    int key_len;<br>
+    long index;<br>
+<br>
+    if (zend_hash_get_current_key_ex(arr_hash, &amp;key, &amp;key_len, &amp;index,
+	    0, &amp;pointer) == HASH_KEY_IS_STRING) {<br>
+        PHPWRITE(key, key_len);<br>
+    } else {<br>
+        php_printf("%ld", index);<br>
+    }<br>
+<br>
+    php_printf(" =&gt; ");<br>
+<br>
+    temp = **data;<br>
+    zval_copy_ctor(&amp;temp);<br>
+    convert_to_string(&amp;temp);<br>
+    PHPWRITE(Z_STRVAL(temp), Z_STRLEN(temp));<br>
+    php_printf("\n");<br>
+    zval_dtor(&amp;temp);<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+记住数组可以具有数字索引、关联字符串关键字或兼有二者。调用<code>zend_hash_get_current_key_ex()</code>使得既可以取得数组当前位置的索引（原文是type－译注），也可以根据返回值确定它的类型，可能为<code>HASH_KEY_IS_STRING</code>、<code>HASH_KEY_IS_LONG</code>或<code>HASH_KEY_NON_EXISTANT</code>。由于<code>zend_hash_get_current_data_ex()</code>能够返回<code>zval**</code>，你可以确定它不会返回<code>HASH_KEY_NON_EXISTANT</code>，所以只需要检测IS_STRING和IS_LONG的可能性。
+</p>
+
+<p>
+遍历<code>HashTable</code>还有其他方法。Zend引擎针对这个任务展露了三个非常相似的函数：<code>zend_hash_apply()</code>、<code>zend_hash_apply_with_argument()</code>和<code>zend_hash_apply_with_arguments()</code>。第一种形式仅仅遍历<code>HashTable</code>，第二种形式允许传入单个<code>void*</code>参数，第三种形式通过<code>vararg</code>列表允许数量不限的参数。<code>hello_array_walk()</code>展示了它们各自的行为：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+static int php_hello_array_walk(zval **element TSRMLS_DC)<br>
+{<br>
+    zval temp;<br>
+<br>
+    temp = **element;<br>
+    zval_copy_ctor(&amp;temp);<br>
+    convert_to_string(&amp;temp);<br>
+    PHPWRITE(Z_STRVAL(temp), Z_STRLEN(temp));<br>
+    php_printf("\n");<br>
+    zval_dtor(&amp;temp);<br>
+<br>
+    return ZEND_HASH_APPLY_KEEP;<br>
+}<br>
+<br>
+static int php_hello_array_walk_arg(zval **element, char *greeting TSRMLS_DC)<br>
+{<br>
+    php_printf("%s", greeting);<br>
+    php_hello_array_walk(element TSRMLS_CC);<br>
+<br>
+    return ZEND_HASH_APPLY_KEEP;<br>
+}<br>
+<br>
+static int php_hello_array_walk_args(zval **element, int num_args, va_list args,
+    zend_hash_key *hash_key)<br>
+{<br>
+    char *prefix = va_arg(args, char*);<br>
+    char *suffix = va_arg(args, char*);<br>
+    TSRMLS_FETCH();<br>
+<br>
+    php_printf("%s", prefix);<br>
+    php_hello_array_walk(element TSRMLS_CC);<br>
+    php_printf("%s\n", suffix);<br>
+<br>
+    return ZEND_HASH_APPLY_KEEP;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_array_walk)<br>
+{<br>
+    zval *zarray;<br>
+    int print_newline = 1;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "a", &amp;zarray) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    zend_hash_apply(Z_ARRVAL_P(zarray), (apply_func_t)php_hello_array_walk TSRMLS_CC);<br>
+    zend_hash_apply_with_argument(Z_ARRVAL_P(zarray), 
+        (apply_func_arg_t)php_hello_array_walk_arg, "Hello " TSRMLS_CC);<br>
+    zend_hash_apply_with_arguments(Z_ARRVAL_P(zarray), 
+        (apply_func_args_t)php_hello_array_walk_args, 2, "Hello ", "Welcome to my extension!");<br>
+<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+上述代码大多明白易懂，你应该对相关函数的用法足够熟悉了。传入<code>hello_array_walk()</code>的数组被遍历了三次，一次不带参数，一次带单个参数，第三次带两个参数。这次的设计中，<code>walk_arg()</code>和<code>walk_args()</code>函数依赖于不带参的<code>walk()</code>函数处理转换和打印<code>zval</code>的工作，因为这项工作在三者中是通用的。
+</p>
+
+<p>
+如同多数用到<code>zend_hash_apply()</code>的地方，在这段代码中，<code>walk()</code>（原文是“apply()”－译注）函数返回<code>ZEND_HASH_APPLY_KEEP</code>。这告诉<code>zend_hash_apply()</code>函数离开<code>HashTable</code>中的（当前）元素，继续处理下一个。这儿也可以返回其他值：<code>ZEND_HASH_APPLY_REMOVE</code>－如名所示，删除当前元素并继续应用到下一个；<code>ZEND_HASH_APPLY_STOP</code>－在当前元素中止数组的遍历并退出<code>zend_hash_apply()</code>函数。
+</p>
+
+<p>
+其中不太熟悉的部件大概是<code>TSRMLS_FETCH()</code>。回想第一部分，<code>TSRMLS_*</code>宏是TSRM层的一部分，用于避免各线程的作用域被其他的侵入。因为<code>zend_hash_apply()</code>的多线程版本用了<code>vararg</code>列表，<code>tsrm_ls</code>标记没有传入<code>walk()</code>函数。为了在回调<code>php_hello_array_walk()</code>时找回并使用它，你的函数调用<code>TSRMLS_FETCH()</code>从资源池中找到正确的线程。（注意：该方法比直接传参慢很多，所以非必须不要使用。）
+</p>
+
+<p>
+用<code>foreach</code>的形式遍历数组是常见的任务，但是常常需要通过数字索引或关联关键字查找数组中的特定值。下一个函数返回由第一个参数指定的数组的一个值，该值基于第二个参数指定的偏移量或关键字得到。
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_array_value)<br>
+{<br>
+    zval *zarray, *zoffset, **zvalue;<br>
+    long index = 0;<br>
+    char *key = NULL;<br>
+    int key_len = 0;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "az",
+	    &amp;zarray, &amp;zoffset) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    switch (Z_TYPE_P(zoffset)) {<br>
+        case IS_NULL:<br>
+            index = 0;<br>
+            break;<br>
+        case IS_DOUBLE:<br>
+           index = (long)Z_DVAL_P(zoffset);<br>
+            break;<br>
+        case IS_BOOL:<br>
+        case IS_LONG:<br>
+        case IS_RESOURCE:<br>
+            index = Z_LVAL_P(zoffset);<br>
+            break;<br>
+        case IS_STRING:<br>
+            key = Z_STRVAL_P(zoffset);<br>
+            key_len = Z_STRLEN_P(zoffset);<br>
+            break;<br>
+        case IS_ARRAY:<br>
+            key = "Array";<br>
+            key_len = <a>sizeof</a>("Array") - 1;<br>
+            break;<br>
+        case IS_OBJECT:<br>
+            key = "Object";<br>
+            key_len = <a>sizeof</a>("Object") - 1;<br>
+            break;<br>
+        default:<br>
+            key = "Unknown";<br>
+            key_len = <a>sizeof</a>("Unknown") - 1;<br>
+    }<br>
+<br>
+    if (key &amp;&amp; zend_hash_find(Z_ARRVAL_P(zarray),
+	    key, key_len + 1, (void**)&amp;zvalue) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    } else if (!key &amp;&amp; zend_hash_index_find(Z_ARRVAL_P(zarray),
+	    index, (void**)&amp;zvalue) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    *return_value = **zvalue;<br>
+    zval_copy_ctor(return_value);<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+该函数开始于<code>switch</code>块，它用和Zend引擎相同的方式处理类型转换。<code>NULL</code>视为0，<code>Boolean</code>据值视为0或1，<code>double</code>转化为<code>long</code>（也进行截断），<code>resource</code>转化为它的数字值。对<code>resource</code>类型的处理是PHP 3的遗留，那时候资源确实只<i>是</i>在查找中用的数字，而不是特殊的类型（unto themselves）。
+</p>
+
+<p>
+数组和对象只不过视为字符串字面量“Array”或“Object”，因没有什么转换具有实在的意义。最后插入缺省条件极小心地处理其他情形，以防PHP的未来版本可能引入其他数据类型而使该扩展产生编译问题。
+</p>
+
+<p>
+如果函数查找的是关联关键字，那么<code>key</code>只会被设置为非<code>NULL</code>，所以可用它来确定查找是基于关联还是索引。如果因为关键字不存在使选定的查找失败了，函数因此返回<code>NULL</code>表明失败。否则找到的<code>zval</code>被复制到<code>return_value</code>。
+</p>
+
+<a name="Heading6"></a><h3>符号表作为数组</h3>
+<p>
+如果以前用过<code>$GLOBALS</code>数组，你应该知道在PHP脚本的全局作用域声明和使用的每个变量也都存在于这个数组中。回想下，数组在内部是用<code>HashTable</code>表示的，想到个问题：“是否存在特别的地方可以找到<code>GLOBALS</code>数组？”答案是“存在”，就是<code>EG(symbol_table)</code>－Executor Globals结构，它的类型是<code>HashTable</code>（不是<code>HashTable*</code>，留心，只是<code>HashTable</code>）。
+</p>
+
+<p>
+已经知道了如何查找数组中关联于关键字的元素，现在又知道了哪儿可以找到全局符号表，应该可以在扩展的代码中查找变量了：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_get_global_var)<br>
+{<br>
+    char *varname;<br>
+    int varname_len;<br>
+    zval **varvalue;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s",
+	    &amp;varname, &amp;varname_len) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    if (zend_hash_find(&amp;EG(symbol_table), varname, varname_len + 1,
+	    (void**)&amp;varvalue) == FAILURE) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_NOTICE, "Undefined variable: %s", varname);<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    *return_value = **varvalue;<br>
+    zval_copy_ctor(return_value);<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+现在这些对你来说应该非常熟悉了。这个函数接受一个字符串参数，用它从全局作用域找到一个变量并且返回其副本。
+</p>
+
+<p>
+这儿有个新内容<code>php_error_docref()</code>。你会发现该函数或是它的近亲遍布PHP源码树的各个角落。第一个参数是个可选的文档引用（缺省是用当前的函数）。其次是到处都出现的<code>TSRMLS_CC</code>，后面跟着关于错误的严重级别，最后是<code>printf()</code>样式的描述错误信息的格式字符串及相关的参数。让你的函数在失败情形下总是提供一些有意义的错误是很重要的。实际上，现在是个很好的机会，回头向<code>hello_array_value()</code>加入一条错误语句。本教程结尾的<a href="part 2-2.html#Heading9">核对（代码）完整性</a>一节也将包含它们（指错误语句－译注）。
+</p>
+
+<p>
+除了全局符号表，Zend引擎也维持一个到局部符号表的引用。由于内部函数没有自己的符号表（为什么需要这个呢？），局部符号表实际上引用了调用当前内部函数的用户函数的局部作用域。看一个简单的函数，它设置了局部作用域的变量：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_set_local_var)<br>
+{<br>
+    zval *newvar;<br>
+    char *varname;<br>
+    int varname_len;<br>
+    zval *value;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz",
+	    &amp;varname, &amp;varname_len, &amp;value) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    ALLOC_INIT_ZVAL(newvar);<br>
+    *newvar = *value;<br>
+    zval_copy_ctor(newvar);<br>
+    zend_hash_add(EG(active_symbol_table), varname, varname_len + 1,
+	    &amp;newvar, <a>sizeof</a>(zval*), NULL);<br>
+<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+这儿绝没有什么新东西。继续前进，构建迄今得到的（代码），针对它运行一些测试脚本。确信得到了期望的结果，确实得到了。
+</p>
+
+<a name="Heading7"></a><h3>引用计数</h3>
+<p>
+迄今为止，我们向<code>HashTables</code>中加入的<code>zval</code>要么是新建的，要么是刚拷贝的。它们都是独立的，只占用自己的资源且只存在于某个<code>HashTable</code>中。作为一个语言设计的概念，创建和拷贝变量的方法是“很好”的，但是习惯了C程序设计就会知道，通过避免拷贝大块的数据－除非绝对必须，来节约内存和CPU时间并不少见。考虑这段用户代码：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+<span style="color: rgb(0, 0, 187);">&lt;?php<br>
+<br>
+    $a</span> <span style="color: rgb(0, 119, 0);">=</span> <span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.file-get-contents.html">file_get_contents</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(221, 0, 0);">'fourMegabyteLogFile.log'</span><span style="color: rgb(0, 119, 0);">);<br>
+    </span><span style="color: rgb(0, 0, 187);">$b</span> <span style="color: rgb(0, 119, 0);">=</span> <span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">;<br>
+    <a href="http://devzone.zend.com/manual/view/page/function.unset.html">unset</a>(</span><span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">);<br>
+<br></span><span style="color: rgb(0, 0, 187);">?&gt;</span>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+如果执行<code>zval_copy_ctor()</code>（将会对字符串内容执行<code>estrndup()</code>）将<code>$a</code>拷贝给<code>$b</code>，那么这个简短的脚本实际会用掉8M内存来存储同一4M文件的两份相同的副本。在最后一步取消<code>$a</code>只会更糟，因为原始字符串被<code>efree()</code>了。用C做这个将会很简单，大概是这样：<code>b = a; a = NULL;</code>。
+</p>
+
+<p>
+幸运的是，Zend引擎稍微聪明些。当创建<code>$a</code>时，会创建一个潜在的<code>string</code>类型的<code>zval</code>，它含有日至文件的内容。这个<code>zval</code>通过调用<code>zend_hash_add()</code>被赋给 <code>$a</code>变量。当<code>$a</code>被拷贝给<code>$b</code>，引擎做类似下面的事情：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+{<br>
+    zval **value;<br>
+<br>
+    zend_hash_find(EG(active_symbol_table), "a", <a>sizeof</a>("a"), (void**)&amp;value);<br>
+<br>
+    ZVAL_ADDREF(*value);<br>
+<br>
+    zend_hash_add(EG(active_symbol_table), "b", <a>sizeof</a>("b"), value, <a>sizeof</a>(zval*));<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+当然，实际代码会更复杂，但是这儿的要点是<code>ZVAL_ADDREF()</code>。记住<code>zval</code>含有四个要素。你已经了解了<code>type</code>和<code>value</code>；这次处理的是<code>refcount</code>。如名所示，<code>refcount</code>是特定的<code>zval</code>在符号表中、数组中或其他地方被引用次数的计数器。
+</p>
+
+<p>
+使用<code>ALLOC_INIT_ZVAL()</code>会把<code>refcount</code>设为1，所以，如果要把它返回或加入<code>HashTable</code>一次，你什么也不用去做。在上面的代码中，你从<code>HashTable</code>中取得一个<code>zval</code>但是没有删除它，所以,它的<code>refcount</code>匹配引用它的位置的数量。为了从其他位置引用该值，你需要增加它的引用计数。
+</p>
+
+<p>
+当用户空间代码调用<code>unset($a)</code>，引擎对该变量执行<code>zval_ptr_dtor()</code>。在前面用到的<code>zval_ptr_dtor()</code>中，你看不到的事实是，这个调用没有必要销毁该<code>zval</code>和它的内容。实际工作是减少<code>refcount</code>。如果，且仅仅是如果，<code>refcount</code>变成了０，Zend引擎会销毁该<code>zval</code>...
+</p>
+
+<b><a href="part 2-2.html">第2页继续</a></b>。
+<br>
+<br>
+
+<p style="text-align: center;">Copyright © Sara Golemon, 2005. All rights reserved.
+</p><br>
+</div>
+			  </div>
+			</div>
+		</div>
+<!-- Fireclick, Inc - COPYRIGHT 1999-2007 - Please do not modify this code-->
+
+<!-- Fireclick, Inc - COPYRIGHT 1999-2007 - Please do not modify this code-->
+	</body></html>

@@ -1,0 +1,1273 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-US" dir="ltr">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>编写扩展_III - 资源</title>
+
+<meta name="Rating" content="General">
+<meta name="Distribution" content="Global">
+<meta name="Revisit-After" content="3 Days">
+<meta name="Copyright" content="1999-2006 Zend Technologies Ltd.">
+<meta name=" WT.cg_n" content="_Zend DevZone">
+<meta name="WT.seg_1" content="Community"> 
+<meta name="keywords" content="php, best practices, samples, articles, news, community, knowledge, Extension, Tutorials">
+
+<link rel="alternate" title="Zend Developer Zone - Home Page RSS Feed" href="http://feeds.feedburner.com/ZendDeveloperZone" type="application/rss+xml">  
+<link rel="alternate" title="Zend Developer Zone - Home Page Atom Feed" href="http://feeds.feedburner.com/ZendDeveloperZone" type="application/atom+xml">  
+<link rel="shortcut icon" href="favicon.ico"><!--Fireclick implementation-->
+
+<link rel="stylesheet" type="text/css" href="index.css" media="all"></head><body><img src="untitled" alt="" style="position: absolute; left: -9999px;">
+
+		<div id="container">
+			
+			<div id="middle">
+               <div id="content" class="article-page">
+         	   
+	     <h1 id="page-heading">编写扩展_III - 资源</h1>
+	   <div class="article-info tag-list"> 
+	   		  <a href="http://devzone.zend.com/tag/Extension">扩展</a>&nbsp;&nbsp;
+	   		  <a href="http://devzone.zend.com/tag/Tutorials">教程</a>&nbsp;&nbsp;
+	   	   </div>       
+	   <div class="article-info">
+		   <span class="article-by">by <a href="http://devzone.zend.com/member/86-Cal-Evans-editor" title="Author profile and contributions">			 Sara Golemon</a></span>
+           <span class="comment-block"> | Thursday, May 11, 2006 </span>		   
+        </div>
+		<div class="clearfix"></div><br>
+
+		<!-- META
+Author: Sara Golemon
+Title:  Extension Writing III
+Date:   6th May 2005
+-->
+<div>
+
+<p>
+<a href="#Heading1">介绍</a><br>
+<a href="#Heading2">资源</a><br>
+<a href="#Heading3">初始化资源</a><br>
+<a href="#Heading4">接收资源作为函数参数</a><br>
+<a href="#Heading5">销毁资源</a><br>
+<a href="#Heading6">强制销毁资源</a><br>
+<a href="#Heading7">持久资源</a><br>
+<a href="#Heading8">查找现存的持久资源</a><br>
+<a href="#Heading9">核对（代码）完整性</a><br>
+<a href="#Heading10">总结</a><br>
+</p>
+
+
+<a name="Heading1"></a><h3>介绍</h3>
+<p>
+迄今为止，你已经处理了一些熟悉的概念，而且很容易就可以在在用户空间找到它们的对应物。在本教程中，你将深入一个更陌生的数据类型的内部运行机制，该类型对用户空间完全隐藏了内部细节，但是它的行为最终会让你有种似曾相识的感觉。</p>
+
+<a name="Heading2"></a><h3>资源</h3>
+<p>
+PHP的<code>zval</code>可以描绘广泛的内部数据类型，然而有一种数据类型是它不能充分描绘的－脚本中的<b>指针</b>（pointer）。当指针引用的是不透明的<code>typedef</code>时，像值一样表示指针更加困难。由于没有有效的方式描绘这些复合结构，因此也没有办法对它们使用传统的操作符。要解决这个问题，只需要通过一个（本质上）任意的标识符（label）引用指针，这（种方式）被称为<b>资源</b>。
+</p>
+
+<p>
+要使资源的标识符对Zend引擎有意义，必须先向PHP注册其底层的数据类型。你将从在<i>php_hello.h</i>中定义一个简单的数据结构开始。你可以把它放在几乎任何地方，但是，为了本次练习，把它放在<code>#define</code>语句后面，<code>PHP_MINIT_FUNCTION</code>声明前面。你也要定义一个常量，作为资源的名字，例如当调用<code>var_dump()</code>时会显示。
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+typedef struct _php_hello_person {<br>
+    char *name;<br>
+    int name_len;<br>
+    long age;<br>
+} php_hello_person;<br>
+<br>
+#define PHP_HELLO_PERSON_RES_NAME "Person Data"<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+现在打开<i>hello.c</i>，在<code>ZEND_DECLARE_MODULE_GLOBALS</code>语句前面增加一个真正的全局整型数：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+int le_hello_person;
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+在PHP扩展中，只有很少的几处需要声明真正的全局变量的地方，<b>目录入口标识符（List entry identifiers）</b>（<code>le_*</code>）是其中之一。这些值只是由一个查找表用来把资源类型和它们的文本名字以及析构方法相关联，它们不需要是线程安全的。你的扩展将在<code>MINIT</code>步骤为其导出的每个资源生成一个唯一编号。现在把它加入你的扩展，在<code>PHP_MINIT_FUNCTION(hello)</code>的顶部放入下面的代码：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+le_hello_person = zend_register_list_destructors_ex(NULL, NULL, 
+    PHP_HELLO_PERSON_RES_NAME, module_number);
+</code>
+</td>
+  </tr>
+</tbody></table>
+<br/>
+<a name="Heading3"></a><h3>初始化资源</h3>
+<p>
+既然已经注册了资源，你需要用它做些事情。把下面的函数连同<code>hello_functions</code>结构中的匹配项加入<i>hello.c</i>，对应的原型声明放入<i>php_hello.h</i>：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_person_new)<br>
+{<br>
+    php_hello_person *person;<br>
+    char *name;<br>
+    int name_len;<br>
+    long age;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sl",
+        &amp;name, &amp;name_len, &amp;age) == FAILURE) {<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (name_len &lt; 1) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING,
+            "No name given, person resource not created.");<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (age &lt; 0 || age &gt; 255) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING,
+            "Nonsense age (%d) given, person resource not created.", age);<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    person = emalloc(sizeof(php_hello_person));<br>
+    person-&gt;name = estrndup(name, name_len);<br>
+    person-&gt;name_len = name_len;<br>
+    person-&gt;age = age;<br>
+<br>
+    ZEND_REGISTER_RESOURCE(return_value, person, le_hello_person);<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+在分配内存和复制数据以前，该函数对要传入资源的数据进行了一些健壮性检查：是否提供了名字？这个人的年龄是否超出了人类的寿命范围？当然，延缓衰老的研究可能使年龄的数据类型（及其健壮性检查限制）在某天产生类似千年虫的问题，但是假定没人会超过255岁在任何时候都应当是安全的。
+</p>
+
+<p>
+一旦函数对入口条件感到满意，所要做的就是分配一些内存并放入它的数据。最后把新注册的资源装入<code>return_value</code>。这个函数（指ZEND_REGISTER_RESOURCE－译注）不需要了解数据结构的内部情况；它只需要知道数据的指针地址和相关联的资源类型。
+</p>
+
+<a name="Heading4"></a><h3>接收资源作为函数参数</h3>
+<p>
+从本系列之前的教程开始，你已经知道了如何使用<code>zend_parse_parameters()</code> 接收资源参数。现在是时候用它从给定的资源中获取数据了。把下一个函数加入扩展：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_person_greet)<br>
+{<br>
+    php_hello_person *person;<br>
+    zval *zperson;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &amp;zperson) == FAILURE) {<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    ZEND_FETCH_RESOURCE(person, php_hello_person*, &amp;zperson, -1, \
+        PHP_HELLO_PERSON_RES_NAME, le_hello_person);<br>
+<br>
+    php_printf("Hello ");<br>
+    PHPWRITE(person-&gt;name, person-&gt;name_len);<br>
+    php_printf("!\nAccording to my records, you are %d years old.\n", person-&gt;age);<br>
+<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+此处功能上的重要部分应该很容易理解。<code>ZEND_FETCH_RESOURCE()</code>需要一个变量来放入指针值。它也需要了解变量的内部类型，以及从哪儿得到资源标识符。
+</p>
+
+<p>
+该函数调用中的<code>-1</code>表明利用<code>&amp;zperson</code>标识资源，是种可选方式。如果这儿提供了<code>-1</code>以外的数字值，Zend引擎将尝试使用该编号标识资源，而不是使用<code>zval*</code>参数的数据。如果传入的资源与最后一个参数指定的资源类型不匹配，将会利用倒数第二个参数给出的资源名产生一个错误消息。
+</p>
+
+<p>
+skin资源的方式不止一个。实际上下面的四个代码块具有同样的效果：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+ZEND_FETCH_RESOURCE(person, php_hello_person *, &amp;zperson, -1,\
+    PHP_HELLO_PERSON_RES_NAME, le_person_name);<br>
+<br>
+ZEND_FETCH_RESOURCE(person, php_hello_person *, NULL, Z_LVAL_P(zperson), \
+    PHP_HELLO_PERSON_RES_NAME, le_person_name);<br>
+<br>
+person = (php_hello_person *) zend_fetch_resource(&amp;zperson TSRMLS_CC, -1, \
+    PHP_HELLO_PERSON_RES_NAME, NULL, 1, le_person_name);<br>
+ZEND_VERIFY_RESOURCE(person);<br>
+<br>
+person = (php_hello_person *) zend_fetch_resource(&amp;zperson TSRMLS_CC, -1, \
+    PHP_HELLO_PERSON_RES_NAME, NULL, 1, le_person_name);<br>
+if (!person) {<br>
+    RETURN_FALSE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+对于不在<code>PHP_FUNCTION()</code>中的情形，最后一对的形式非常有用，因此没有为<code>return_value</code>赋值；或者当出现资源类型不匹配这种非常合理的（原因），并且不想只返回<code>FALSE</code>时。
+</p>
+
+<p>
+无论选择哪种方法从参数中获取你的资源数据，结果都是一样的。现在你有一个熟悉的C结构，可以使用同其他C程序完全一样的方式访问它。此时该结构仍然“属于”资源变量，所以你的函数不应该释放指针或是在退出前改变引用计数。那么资源如何被销毁呢？
+</p>
+
+<a name="Heading5"></a><h3>销毁资源</h3>
+<p>
+PHP中大多数创建资源的函数都有对应的函数用于释放资源。例如，<code>mysql_connect()</code>有<code>mysql_close()</code>，<code>mysql_query()</code>有<code>mysql_free_result()</code>，<code>fopen()</code>有<code>fclose()</code>，诸如此类。或许经验告诉你如果只是<code>unset()</code>含有资源值的变量，那么，不论它们附有什么样的真实资源，也都会被释放／关闭。例如：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+<span style="color: rgb(0, 0, 187);">&lt;?php<br>
+<br>
+    $fp </span><span style="color: rgb(0, 119, 0);">= </span><span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.fopen.html">fopen</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(221, 0, 0);">'foo.txt'</span><span style="color: rgb(0, 119, 0);">,</span><span style="color: rgb(221, 0, 0);">'w'</span><span style="color: rgb(0, 119, 0);">);<br>
+    <a href="http://devzone.zend.com/manual/view/page/function.unset.html">unset</a>(</span><span style="color: rgb(0, 0, 187);">$fp</span><span style="color: rgb(0, 119, 0);">);<br>
+<br></span><span style="color: rgb(0, 0, 187);">?&gt;</span>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+该代码片段的第一行打开一个用于写入的文件－<i>foo.txt</i>，并且把流资源赋给变量<code>$fp</code>。当第二行清除<code>$fp</code>时，PHP自动关闭文件－即使<code>fclose()</code>从未被调用。这是怎样做到的呢？
+</p>
+
+<p>
+奥秘就在你在<code>MINIT</code>函数中调用的<code>zend_register_resource()</code>中。你传入的两个<code>NULL</code>参数对应清除（或<code>dtor</code>）函数。第一个用于普通资源，第二个用于持久资源。我们现在先关注普通资源，稍后再回到持久资源，但是它们在常规语义上是相同的。像下面一样修改行<code>zend_register_resource</code>：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+le_hello_person = zend_register_list_destructors_ex(php_hello_person_dtor, NULL,
+    PHP_HELLO_PERSON_RES_NAME, module_number);
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+并且在紧邻<code>MINIT</code>方法的上面创建新函数：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+static void php_hello_person_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC)<br>
+{<br>
+    php_hello_person *person = (php_hello_person*)rsrc-&gt;ptr;<br>
+<br>
+    if (person) {<br>
+        if (person-&gt;name) {<br>
+            efree(person-&gt;name);<br>
+        }<br>
+        efree(person);<br>
+    }<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+如你所见，只是释放了曾分配并关联于资源的缓冲。当持有你的资源引用的最后一个用户变量超出作用域，该函数将被自动调用以使你的扩展能够释放内存、从远程主机断开或执行其他的最终清理。
+</p>
+
+<a name="Heading6"></a><h3>强制销毁资源</h3>
+<p>
+如果对资源的<code>dtor</code>函数的调用依赖于所有指向它的变量超出作用域，那么类似<code>fclose()</code>或<code>mysql_free_result()</code>这样的函数是怎样在资源的引用仍然存在的情况下完成任务的？回答之前，我希望你实验下面的代码：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+<span style="color: rgb(0, 0, 187);">&lt;?php<br>
+    <br>
+    $fp </span><span style="color: rgb(0, 119, 0);">= </span><span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.fopen.html">fopen</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(221, 0, 0);">'test'</span><span style="color: rgb(0, 119, 0);">, </span><span style="color: rgb(221, 0, 0);">'w'</span><span style="color: rgb(0, 119, 0);">);<br>
+    <br></span><span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.var-dump.html">var_dump</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$fp</span><span style="color: rgb(0, 119, 0);">);<br></span><span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.fclose.html">fclose</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$fp</span><span style="color: rgb(0, 119, 0);">);<br></span><span style="color: rgb(0, 0, 187);"><a href="http://devzone.zend.com/manual/view/page/function.var-dump.html">var_dump</a></span><span style="color: rgb(0, 119, 0);">(</span><span style="color: rgb(0, 0, 187);">$fp</span><span style="color: rgb(0, 119, 0);">);<br>
+    <br></span><span style="color: rgb(0, 0, 187);">?&gt;</span>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+两次调用<code>var_dump()</code>都能看到资源编码的数值，由此知道资源的引用仍然存在；但是第二次调用<code>var_dump()</code>表明其类型是“unknown”。这是因为Zend引擎在内存中维护的资源查找表不再包含匹配那个编码的文件句柄－所以任何利用那个编码执行 <code>ZEND_FETCH_RESOURCE()</code>的尝试都将失败。
+</p>
+
+<p>
+如同很多其他基于资源的函数，<code>fclose()</code>通过使用<code>zend_list_delete()</code>实现这个（目的）。或许明显，或许不明显，该函数从特定的资源表中删除一项。其最简单的应用可能是：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_person_delete)<br>
+{<br>
+    zval *zperson;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &amp;zperson) == FAILURE) {<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    zend_list_delete(Z_LVAL_P(zperson));<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+当然，这个函数将销毁*任意*资源类型，不管它是我们的<code>person</code>资源、文件句柄、MySQL连接或其他的什么。为了避免给其他的扩展造成潜在的问题以及使得用户空间代码难于调试，首先检验资源类型是好习惯。这很容易做到，利用<code>ZEND_FETCH_RESOURCE()</code>取得资源放入哑变量。继续前进，把它加入你的函数，介于<code>zend_parse_parameters()</code>调用和<code>zend_list_delete()</code>调用之间。
+</p>
+
+<a name="Heading7"></a><h3>持久资源</h3>
+<p>
+如果你用过<code>mysql_pconnect()</code>、<code>popen()</code>或任何其他持久的资源类型，那么你将知道，资源可以长期驻留，不只是在所有引用它的变量超出作用域之后，甚至是在一个请求结束了并且新的请求产生之后。这些资源称为<b>持久资源</b>，因为它们贯通SAPI的整个生命周期持续存在，除非特意销毁。
+</p>
+
+<p>
+标准资源和持久资源的两个关键区别是注册时<code>dtor</code>函数的安排，以及使用<code>pemalloc()</code>分配数据而不是<code>emalloc()</code>。
+</p>
+
+<p>
+让我们为<code>person</code>资源创建一个能保持持久性的版本。先向<code>MINIT</code>增加另一个<code>zend_register_resource()</code>代码行。不要忘记紧接着<code>le_hello_person</code>定义<code>le_hello_person_persist</code>变量：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_MINIT_FUNCTION(hello)<br>
+{<br>
+    le_hello_person = zend_register_list_destructor_ex(
+		php_hello_person_dtor, NULL, PHP_HELLO_PERSON_RES_NAME, module_number);<br>
+    le_hello_person_persist = zend_register_list_destructor_ex (
+		NULL, php_hello_person_persist_dtor, PHP_HELLO_PERSON_RES_NAME, module_number);<br>
+    ...<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+基本语法是一样的，但这次你在<code>zend_register_resource()</code>的第二个参数指定析构函数而非第一个。二者真正的区别是<code>dtor</code>何时被调用。传入第一个参数的<code>dtor</code>函数在活动请求关闭时被调用，而传入第二个参数的<code>dtor</code>函数直到模块在最终关闭被卸载时才被调用。
+</p>
+
+<p>
+由于引用了一个新的资源<code>dtor</code>函数，你将需要定义它。把这个看似熟悉的方法加入<i>hello.c</i>中<code>MINIT</code>上面的某处就行：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+static void php_hello_person_persist_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC)<br>
+{<br>
+    php_hello_person *person = (php_hello_person*)rsrc-&gt;ptr;<br>
+<br>
+    if (person) {<br>
+        if (person-&gt;name) {<br>
+            pefree(person-&gt;name, 1);<br>
+    }<br>
+        pefree(person, 1);<br>
+    }<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+现在你需要一种方法例示持久版本的<code>person</code>资源。既有的约定是创建一个名字中以“p”作前缀的新函数。向你的扩展中加入该方法：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_person_pnew)<br>
+{<br>
+    php_hello_person *person;<br>
+    char *name;<br>
+    int name_len;<br>
+    long age;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sl",
+        &amp;name, &amp;name_len, &amp;age) == FAILURE) {<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (name_len &lt; 1) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, \
+            "No name given, person resource not created.");<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (age &lt; 0 || age &gt; 255) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, \
+            "Nonsense age (%d) given, person resource not created.", age);<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    person = pemalloc(sizeof(php_hello_person), 1);<br>
+    person-&gt;name = pemalloc(name_len + 1, 1);<br>
+    memcpy(person-&gt;name, name, name_len + 1);<br>
+    person-&gt;name_len = name_len;<br>
+    person-&gt;age = age;<br>
+<br>
+    ZEND_REGISTER_RESOURCE(return_value, person, le_hello_person_persist);<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+如你所见，该函数与<code>hello_person_new()</code>仅有微小的不同。在实践中，你将看到这类成对的用户空间函数被典型地实现为围绕共同核心的封装函数。看看源代码中其他的资源创建函数对是如何避免这种重复的。
+</p>
+
+<p>
+既然你的扩展将创建两类资源，因此需要能处理两种类型。幸运的是，<code>ZEND_FETCH_RESOURCE</code>有个姐妹函数胜任这个任务。用下面的代码替换<code>hello_person_greet()</code>中当前对<code>ZEND_FETCH_RESOURCE</code>的调用：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+ZEND_FETCH_RESOURCE2(person, php_hello_person*, &amp;zperson, -1, \
+    PHP_HELLO_PERSON_RES_NAME , le_hello_person, le_hello_person_persist);
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+这将用合适的数据加载你的<code>person</code>变量，无论是否传入持久资源。
+</p>
+
+<p>
+这两个<code>FETCH</code>宏调用允许你指定很多资源类型，但是也有罕见的需要多于两个的情况。为防万一，这是利用基本函数写的最后一条语句：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+person = (php_hello_person*) zend_fetch_resource(&amp;zperson TSRMLS_CC, -1, \
+    PHP_HELLO_PERSON_RES_NAME, NULL, 2, le_hello_person, le_hello_person_persist);<br>
+    ZEND_VERIFY_RESOURCE(person);
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+这儿要注意两件重要的事情。首先，你能看到<code>FETCH_RESOURCE</code>宏自动尝试校验资源。展开来说，此种情况下宏<code>ZEND_VERIFY_RESOURCE</code>只是转换为：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+if (!person) {<br>
+    RETURN_FALSE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+当然，你不会总是仅仅因为不能取到一个资源就要你的扩展函数退出，所以你能使用真实的<code>zend_fetch_resource()</code>函数尝试取得资源类型，然后应用自己的逻辑处理将返回的<code>NULL</code>值。
+</p>
+
+<a name="Heading8"></a><h3>查找现存的持久资源</h3>
+<p>
+持久资源实际上只是相当于你重用它的能力。为了重用它，你需要安全的地方存储它。Zend引擎通过<code>EG(persistent_list)</code>执行器全局作用域（executor global）实现该（目的），它是个包含<code>list_entry</code>结构的<code>HashTable</code>，通常被引擎用于内部。依照下面修改<code>hello_person_pnew()</code>：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_person_pnew)<br>
+{<br>
+    php_hello_person *person;<br>
+    char *name, *key;<br>
+    int name_len, key_len;<br>
+    long age;<br>
+    list_entry *le, new_le;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sl",
+        &amp;name, &amp;name_len, &amp;age) == FAILURE) {<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (name_len &lt; 1) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, \
+            "No name given, person resource not created.");<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (age &lt; 0 || age &gt; 255) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, \
+            "Nonsense age (%d) given, person resource not created.", age);<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    /* 查找一个已建立的资源 */<br>
+    key_len = spprintf(&amp;key, 0, "hello_person_%s_%d\n", name, age);<br>
+    if (zend_hash_find(&amp;EG(persistent_list), key, key_len + 1, &amp;le) == SUCCESS) {<br>
+        /* 已经存在该person的一个条目 */<br>
+        ZEND_REGISTER_RESOURCE(return_value, le-&gt;ptr, le_hello_person_persist);<br>
+        efree(key);<br>
+        return;<br>
+    }<br>
+<br>
+    /* 新person，分配一个结构 */<br>
+    person = pemalloc(sizeof(php_hello_person), 1);<br>
+    person-&gt;name = pemalloc(name_len + 1, 1);<br>
+    memcpy(person-&gt;name, name, name_len + 1);<br>
+    person-&gt;name_len = name_len;<br>
+    person-&gt;age = age;<br>
+<br>
+    ZEND_REGISTER_RESOURCE(return_value, person, le_hello_person_persist);<br>
+<br>
+    /* 在持久列表中存储一个引用 */<br>
+    new_le.ptr = person;<br>
+    new_le.type = le_hello_person_persist;<br>
+    zend_hash_add(&amp;EG(persistent_list), key, key_len + 1, &amp;new_le, sizeof(list_entry), NULL);<br>
+<br>
+    efree(key);<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+这个版本的<code>hello_person_pnew()</code>首先在<code>EG(persistent_list)</code>全局作用域中检测已经存在的<code>php_hello_person</code>结构，如果可用就用它而不是浪费时间和资源重新分配。如果还不存在，函数分配一个新的结构装入新数据，并且把该结构加入持久列表中。不论哪种方式，函数都在请求中给你留下一个注册为资源的新的结构。
+</p>
+
+<p>
+用于存储指针的持久列表总是位于当前进程或线程中，因此可能同时查找同样数据的两个请求没有任何联系。如果一个进程故意关闭一个持久资源，PHP将处理它，从持久列表中删除那个资源的引用，以使未来的调用不会使用已释放的数据。
+</p>
+
+<a name="Heading9"></a><h3>核对（代码）完整性</h3>
+<p>
+再一次，到本教程结束时你的扩展文件应该为：
+</p>
+
+<h3>config.m4</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_ARG_ENABLE(hello, [whether to enable Hello World support],<br>
+[ --enable-hello Enable Hello World support])<br>
+<br>
+if test "$PHP_HELLO" = "yes"; then<br>
+  AC_DEFINE(HAVE_HELLO, 1, [Whether you have Hello World])<br>
+  PHP_NEW_EXTENSION(hello, hello.c, $ext_shared)<br>
+fi
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<h3>php_hello.h</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifndef PHP_HELLO_H<br>
+#define PHP_HELLO_H 1<br>
+<br>
+#ifdef ZTS<br>
+#include "TSRM.h"<br>
+#endif<br>
+<br>
+ZEND_BEGIN_MODULE_GLOBALS(hello)<br>
+    long counter;<br>
+    zend_bool direction;<br>
+ZEND_END_MODULE_GLOBALS(hello)<br>
+<br>
+#ifdef ZTS<br>
+#define HELLO_G(v) TSRMG(hello_globals_id, zend_hello_globals *, v)<br>
+#else<br>
+#define HELLO_G(v) (hello_globals.v)<br>
+#endif<br>
+<br>
+#define PHP_HELLO_WORLD_VERSION "1.0"<br>
+#define PHP_HELLO_WORLD_EXTNAME "hello"<br>
+<br>
+typedef struct _php_hello_person {<br>
+    char *name;<br>
+    int name_len;<br>
+    long age;<br>
+} php_hello_person;<br>
+<br>
+#define PHP_HELLO_PERSON_RES_NAME "Person Data"<br>
+<br>
+PHP_MINIT_FUNCTION(hello);<br>
+PHP_MSHUTDOWN_FUNCTION(hello);<br>
+PHP_RINIT_FUNCTION(hello);<br>
+<br>
+PHP_FUNCTION(hello_world);<br>
+PHP_FUNCTION(hello_long);<br>
+PHP_FUNCTION(hello_double);<br>
+PHP_FUNCTION(hello_bool);<br>
+PHP_FUNCTION(hello_null);<br>
+PHP_FUNCTION(hello_greetme);<br>
+PHP_FUNCTION(hello_add);<br>
+PHP_FUNCTION(hello_dump);<br>
+PHP_FUNCTION(hello_array);<br>
+PHP_FUNCTION(hello_array_strings);<br>
+PHP_FUNCTION(hello_array_walk);<br>
+PHP_FUNCTION(hello_array_value);<br>
+PHP_FUNCTION(hello_get_global_var);<br>
+PHP_FUNCTION(hello_set_local_var);<br>
+PHP_FUNCTION(hello_person_new);<br>
+PHP_FUNCTION(hello_person_pnew);<br>
+PHP_FUNCTION(hello_person_greet);<br>
+PHP_FUNCTION(hello_person_delete);<br>
+<br>
+extern zend_module_entry hello_module_entry;<br>
+#define phpext_hello_ptr &amp;hello_module_entry<br>
+<br>
+#endif
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<h3>hello.c</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifdef HAVE_CONFIG_H<br>
+#include "config.h"<br>
+#endif<br>
+<br>
+#include "php.h"<br>
+#include "php_ini.h"<br>
+#include "php_hello.h"<br>
+<br>
+int le_hello_person;<br>
+int le_hello_person_persist;<br>
+<br>
+ZEND_DECLARE_MODULE_GLOBALS(hello)<br>
+<br>
+static function_entry hello_functions[] = {<br>
+    PHP_FE(hello_world, NULL)<br>
+    PHP_FE(hello_long, NULL)<br>
+    PHP_FE(hello_double, NULL)<br>
+    PHP_FE(hello_bool, NULL)<br>
+    PHP_FE(hello_null, NULL)<br>
+    PHP_FE(hello_greetme, NULL)<br>
+    PHP_FE(hello_add, NULL)<br>
+    PHP_FE(hello_dump, NULL)<br>
+    PHP_FE(hello_array, NULL)<br>
+    PHP_FE(hello_array_strings, NULL)<br>
+    PHP_FE(hello_array_walk, NULL)<br>
+    PHP_FE(hello_array_value, NULL)<br>
+    PHP_FE(hello_get_global_var, NULL)<br>
+    PHP_FE(hello_set_local_var, NULL)<br>
+    PHP_FE(hello_person_new, NULL)<br>
+    PHP_FE(hello_person_pnew, NULL)<br>
+    PHP_FE(hello_person_greet, NULL)<br>
+    PHP_FE(hello_person_delete, NULL)<br>
+    {NULL, NULL, NULL}<br>
+};<br>
+<br>
+zend_module_entry hello_module_entry = {<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    STANDARD_MODULE_HEADER,<br>
+#endif<br>
+    PHP_HELLO_WORLD_EXTNAME,<br>
+    hello_functions,<br>
+    PHP_MINIT(hello),<br>
+    PHP_MSHUTDOWN(hello),<br>
+    PHP_RINIT(hello),<br>
+    NULL,<br>
+    NULL,<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    PHP_HELLO_WORLD_VERSION,<br>
+#endif<br>
+    STANDARD_MODULE_PROPERTIES<br>
+};<br>
+<br>
+#ifdef COMPILE_DL_HELLO<br>
+    ZEND_GET_MODULE(hello)<br>
+#endif<br>
+<br>
+PHP_INI_BEGIN()<br>
+    PHP_INI_ENTRY("hello.greeting", "Hello World", PHP_INI_ALL, NULL)<br>
+    STD_PHP_INI_ENTRY("hello.direction", "1", PHP_INI_ALL, OnUpdateBool, \
+        direction, zend_hello_globals, hello_globals)<br>
+PHP_INI_END()<br>
+<br>
+static void php_hello_init_globals(zend_hello_globals *hello_globals)<br>
+{<br>
+    hello_globals-&gt;direction = 1;<br>
+}<br>
+<br>
+PHP_RINIT_FUNCTION(hello)<br>
+{<br>
+    HELLO_G(counter) = 0;<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+static void php_hello_person_persist_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC)<br>
+{<br>
+    php_hello_person *person = (php_hello_person*)rsrc-&gt;ptr;<br>
+<br>
+    if (person) {<br>
+        if (person-&gt;name) {<br>
+            pefree(person-&gt;name, 1);<br>
+        }<br>
+        pefree(person, 1);<br>
+    }<br>
+}<br>
+<br>
+static void php_hello_person_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC)<br>
+{<br>
+    php_hello_person *person = (php_hello_person*)rsrc-&gt;ptr;<br>
+<br>
+    if (person) {<br>
+        if (person-&gt;name) {<br>
+            efree(person-&gt;name);<br>
+        }<br>
+        efree(person);<br>
+    }<br>
+}<br>
+<br>
+PHP_MINIT_FUNCTION(hello)<br>
+{<br>
+    le_hello_person = zend_register_list_destructors_ex(php_hello_person_dtor, NULL,
+        PHP_HELLO_PERSON_RES_NAME, module_number);<br>
+    le_hello_person_persist = zend_register_list_destructors_ex (NULL, 
+        php_hello_person_persist_dtor, PHP_HELLO_PERSON_RES_NAME, module_number);<br>
+<br>
+    ZEND_INIT_MODULE_GLOBALS(hello, php_hello_init_globals, NULL);<br>
+<br>
+    REGISTER_INI_ENTRIES();<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_MSHUTDOWN_FUNCTION(hello)<br>
+{<br>
+    UNREGISTER_INI_ENTRIES();<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_world)<br>
+{<br>
+    RETURN_STRING("Hello World", 1);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_long)<br>
+{<br>
+    if (HELLO_G(direction)) {<br>
+        HELLO_G(counter)++;<br>
+    } else {<br>
+        HELLO_G(counter)--;<br>
+    }<br>
+<br>
+    RETURN_LONG(HELLO_G(counter));<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_double)<br>
+{<br>
+    RETURN_DOUBLE(3.1415926535);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_bool)<br>
+{<br>
+    RETURN_BOOL(1);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_null)<br>
+{<br>
+    RETURN_NULL();<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_greetme)<br>
+{<br>
+    zval *zname;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &amp;zname) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    convert_to_string(zname);<br>
+<br>
+    php_printf("Hello ");<br>
+    PHPWRITE(Z_STRVAL_P(zname), Z_STRLEN_P(zname));<br>
+    php_printf("\n");<br>
+<br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_add)<br>
+{<br>
+    long a;<br>
+    double b;<br>
+    zend_bool return_long = 0;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ld|b", 
+        &amp;a, &amp;b, &amp;return_long) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    if (return_long) {<br>
+        RETURN_LONG(a + b);<br>
+    } else {<br>
+        RETURN_DOUBLE(a + b);<br>
+    }<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_dump)<br>
+{<br>
+    zval *uservar;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &amp;uservar) == FAILURE) {<br>
+    RETURN_NULL();<br>
+    }<br>
+<br>
+    switch (Z_TYPE_P(uservar)) {<br>
+    case IS_NULL:<br>
+        php_printf("NULL\n");<br>
+        break;<br>
+    case IS_BOOL:<br>
+        php_printf("Boolean: %s\n", Z_LVAL_P(uservar) ? "TRUE" : "FALSE");<br>
+        break;<br>
+    case IS_LONG:<br>
+        php_printf("Long: %ld\n", Z_LVAL_P(uservar));<br>
+        break;<br>
+    case IS_DOUBLE:<br>
+        php_printf("Double: %f\n", Z_DVAL_P(uservar));<br>
+        break;<br>
+    case IS_STRING:<br>
+        php_printf("String: ");<br>
+        PHPWRITE(Z_STRVAL_P(uservar), Z_STRLEN_P(uservar));<br>
+        php_printf("\n");<br>
+        break;<br>
+    case IS_RESOURCE:<br>
+        php_printf("Resource\n");<br>
+        break;<br>
+    case IS_ARRAY:<br>
+        php_printf("Array\n");<br>
+        break;<br>
+    case IS_OBJECT:<br>
+        php_printf("Object\n");<br>
+        break;<br>
+    default:<br>
+        php_printf("Unknown\n");<br>
+    }<br>
+<br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_array)<br>
+{<br>
+    char *mystr;<br>
+    zval *mysubarray;<br>
+<br>
+    array_init(return_value);<br>
+<br>
+    add_index_long(return_value, 42, 123);<br>
+    add_next_index_string(return_value, "I should now be found at index 43", 1);<br>
+    add_next_index_stringl(return_value, "I'm at 44!", 10, 1);<br>
+    mystr = estrdup("Forty Five");<br>
+    add_next_index_string(return_value, mystr, 0);<br>
+    add_assoc_double(return_value, "pi", 3.1415926535);<br>
+<br>
+    ALLOC_INIT_ZVAL(mysubarray);<br>
+    array_init(mysubarray);<br>
+<br>
+    add_next_index_string(mysubarray, "hello", 1);<br>
+    php_printf("mysubarray-&gt;refcount = %d\n", mysubarray-&gt;refcount);<br>
+    mysubarray-&gt;refcount = 2;<br>
+    php_printf("mysubarray-&gt;refcount = %d\n", mysubarray-&gt;refcount);<br>
+    add_assoc_zval(return_value, "subarray", mysubarray);<br>
+    php_printf("mysubarray-&gt;refcount = %d\n", mysubarray-&gt;refcount);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_array_strings)<br>
+{<br>
+    zval *arr, **data;<br>
+    HashTable *arr_hash;<br>
+    HashPosition pointer;<br>
+    int array_count;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "a", &amp;arr) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    arr_hash = Z_ARRVAL_P(arr);<br>
+    array_count = zend_hash_num_elements(arr_hash);<br>
+<br>
+    php_printf("The array passed contains %d elements\n", array_count);<br>
+<br>
+    for(zend_hash_internal_pointer_reset_ex(arr_hash, &amp;pointer); 
+        zend_hash_get_current_data_ex(arr_hash, (void**) &amp;data, &amp;pointer) == SUCCESS; 
+        zend_hash_move_forward_ex(arr_hash, &amp;pointer)) {<br>
+<br>
+        zval temp;<br>
+        char *key;<br>
+        int key_len;<br>
+        long index;<br>
+<br>
+        if (zend_hash_get_current_key_ex(arr_hash, &amp;key, &amp;key_len, 
+            &amp;index, 0, &amp;pointer) == HASH_KEY_IS_STRING) {<br>
+            PHPWRITE(key, key_len);<br>
+        } else {<br>
+            php_printf("%ld", index);<br>
+        }<br>
+<br>
+        php_printf(" =&gt; ");<br>
+<br>
+        temp = **data;<br>
+        zval_copy_ctor(&amp;temp);<br>
+        convert_to_string(&amp;temp);<br>
+        PHPWRITE(Z_STRVAL(temp), Z_STRLEN(temp));<br>
+        php_printf("\n");<br>
+        zval_dtor(&amp;temp);<br>
+    }<br>
+<br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+static int php_hello_array_walk(zval **element TSRMLS_DC)<br>
+{<br>
+    zval temp;<br>
+    temp = **element;<br>
+    zval_copy_ctor(&amp;temp);<br>
+    convert_to_string(&amp;temp);<br>
+    PHPWRITE(Z_STRVAL(temp), Z_STRLEN(temp));<br>
+    php_printf("\n");<br>
+    zval_dtor(&amp;temp);<br>
+<br>
+    return ZEND_HASH_APPLY_KEEP;<br>
+}<br>
+<br>
+static int php_hello_array_walk_arg(zval **element, char *greeting TSRMLS_DC)<br>
+{<br>
+    php_printf("%s", greeting);<br>
+    php_hello_array_walk(element TSRMLS_CC);<br>
+<br>
+    return ZEND_HASH_APPLY_KEEP;<br>
+}<br>
+<br>
+static int php_hello_array_walk_args(zval **element, int num_args, 
+    va_list args, zend_hash_key *hash_key)<br>
+{<br>
+    char *prefix = va_arg(args, char*);<br>
+    char *suffix = va_arg(args, char*);<br>
+    TSRMLS_FETCH();<br>
+<br>
+    php_printf("%s", prefix);<br>
+    php_hello_array_walk(element TSRMLS_CC);<br>
+    php_printf("%s\n", suffix);<br>
+<br>
+    return ZEND_HASH_APPLY_KEEP;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_array_walk)<br>
+{<br>
+    zval *zarray;<br>
+    int print_newline = 1;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "a", &amp;zarray) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    zend_hash_apply(Z_ARRVAL_P(zarray), (apply_func_t)php_hello_array_walk TSRMLS_CC);<br>
+    zend_hash_internal_pointer_reset(Z_ARRVAL_P(zarray));<br>
+    zend_hash_apply_with_argument(Z_ARRVAL_P(zarray), 
+        (apply_func_arg_t)php_hello_array_walk_arg, "Hello " TSRMLS_CC);<br>
+    zend_hash_apply_with_arguments(Z_ARRVAL_P(zarray), 
+        (apply_func_args_t)php_hello_array_walk_args, 2, "Hello ", "Welcome to my extension!");<br>
+<br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_array_value)<br>
+{<br>
+    zval *zarray, *zoffset, **zvalue;<br>
+    long index = 0;<br>
+    char *key = NULL;<br>
+    int key_len = 0;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "az", &amp;zarray, &amp;zoffset) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    switch (Z_TYPE_P(zoffset)) {<br>
+    case IS_NULL:<br>
+        index = 0;<br>
+        break;<br>
+    case IS_DOUBLE:<br>
+        index = (long)Z_DVAL_P(zoffset);<br>
+        break;<br>
+    case IS_BOOL:<br>
+    case IS_LONG:<br>
+    case IS_RESOURCE:<br>
+        index = Z_LVAL_P(zoffset);<br>
+        break;<br>
+    case IS_STRING:<br>
+        key = Z_STRVAL_P(zoffset);<br>
+        key_len = Z_STRLEN_P(zoffset);<br>
+        break;<br>
+    case IS_ARRAY:<br>
+        key = "Array";<br>
+        key_len = sizeof("Array") - 1;<br>
+        break;<br>
+    case IS_OBJECT:<br>
+        key = "Object";<br>
+        key_len = sizeof("Object") - 1;<br>
+        break;<br>
+    default:<br>
+        key = "Unknown";<br>
+        key_len = sizeof("Unknown") - 1;<br>
+    }<br>
+<br>
+    if (key &amp;&amp; zend_hash_find(Z_ARRVAL_P(zarray), key, key_len + 1, 
+        (void**)&amp;zvalue) == FAILURE) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_NOTICE, "Undefined index: %s", key);<br>
+        RETURN_NULL();<br>
+    } else if (!key &amp;&amp; zend_hash_index_find(Z_ARRVAL_P(zarray), 
+        index, (void**)&amp;zvalue) == FAILURE) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_NOTICE, "Undefined index: %ld", index);<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    *return_value = **zvalue;<br>
+    zval_copy_ctor(return_value);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_get_global_var)<br>
+{<br>
+    char *varname;<br>
+    int varname_len;<br>
+    zval **varvalue;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", 
+        &amp;varname, &amp;varname_len) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    if (zend_hash_find(&amp;EG(symbol_table), varname, varname_len + 1, 
+        (void**)&amp;varvalue) == FAILURE) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_NOTICE, "Undefined variable: %s", varname);<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    *return_value = **varvalue;<br>
+    zval_copy_ctor(return_value);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_set_local_var)<br>
+{<br>
+    zval *newvar;<br>
+    char *varname;<br>
+    int varname_len;<br>
+    zval *value;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz", 
+        &amp;varname, &amp;varname_len, &amp;value) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    ALLOC_INIT_ZVAL(newvar);<br>
+    *newvar = *value;<br>
+    zval_copy_ctor(newvar);<br>
+<br>
+    zend_hash_add(EG(active_symbol_table), varname, varname_len + 1, 
+        &amp;newvar, sizeof(zval*), NULL);<br>
+<br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_person_new)<br>
+{<br>
+    php_hello_person *person;<br>
+    char *name;<br>
+    int name_len;<br>
+    long age;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sl", 
+        &amp;name, &amp;name_len, &amp;age) == FAILURE) {<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (name_len &lt; 1) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, 
+            "No name given, person resource not created.");<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (age &lt; 0 || age &gt; 255) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, 
+            "Nonsense age (%d) given, person resource not created.", age);<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    person = emalloc(sizeof(php_hello_person));<br>
+    person-&gt;name = estrndup(name, name_len);<br>
+    person-&gt;name_len = name_len;<br>
+    person-&gt;age = age;<br>
+<br>
+    ZEND_REGISTER_RESOURCE(return_value, person, le_hello_person);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_person_pnew)<br>
+{<br>
+    php_hello_person *person;<br>
+    char *name, *key;<br>
+    int name_len, key_len;<br>
+    long age;<br>
+    list_entry *le, new_le;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sl", 
+        &amp;name, &amp;name_len, &amp;age) == FAILURE) {<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (name_len &lt; 1) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, 
+            "No name given, person resource not created.");<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    if (age &lt; 0 || age &gt; 255) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, 
+            "Nonsense age (%d) given, person resource not created.", age);<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    /* 查找一个已建立的资源 */<br>
+    key_len = spprintf(&amp;key, 0, "hello_person_%s_%d\n", name, age);<br>
+    if (zend_hash_find(&amp;EG(persistent_list), key, key_len + 1, &amp;le) == SUCCESS) {<br>
+        /* 已经存在该person的一个条目 */<br>
+        ZEND_REGISTER_RESOURCE(return_value, le-&gt;ptr, le_hello_person_persist);<br>
+        efree(key);<br>
+        return;<br>
+    }<br>
+<br>
+    /* 新person，分配一个结构 */<br>
+    person = pemalloc(sizeof(php_hello_person), 1);<br>
+    person-&gt;name = pemalloc(name_len + 1, 1);<br>
+    memcpy(person-&gt;name, name, name_len + 1);<br>
+    person-&gt;name_len = name_len;<br>
+    person-&gt;age = age;<br>
+<br>
+    ZEND_REGISTER_RESOURCE(return_value, person, le_hello_person_persist);<br>
+<br>
+    /* 在持久列表中存储一个引用 */<br>
+    new_le.ptr = person;<br>
+    new_le.type = le_hello_person_persist;<br>
+    zend_hash_add(&amp;EG(persistent_list), key, key_len + 1, 
+        &amp;new_le, sizeof(list_entry), NULL);<br>
+<br>
+    efree(key);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_person_greet)<br>
+{<br>
+    php_hello_person *person;<br>
+    zval *zperson;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &amp;zperson) == FAILURE) {<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    ZEND_FETCH_RESOURCE2(person, php_hello_person*, &amp;zperson, \
+        -1, PHP_HELLO_PERSON_RES_NAME, le_hello_person, le_hello_person_persist);<br>
+<br>
+    php_printf("Hello ");<br>
+    PHPWRITE(person-&gt;name, person-&gt;name_len);<br>
+    php_printf("!\nAccording to my records, you are %d years old.\n", person-&gt;age);<br>
+<br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_person_delete)<br>
+{<br>
+    zval *zperson;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &amp;zperson) == FAILURE) {<br>
+        RETURN_FALSE;<br>
+    }<br>
+<br>
+    zend_list_delete(Z_LVAL_P(zperson));<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table><a name="Heading10"></a><h3>总结</h3>
+<p>
+在本教程－编写扩展系列的第三部分中，你学习了把任意的、有时不透明的数据放入PHP用户空间变量的几个简单的必需步骤。在后面的步骤中，你将通过连接第三方库来组合这些技术，以创建在PHP中常看到的粘合库。
+</p>
+
+<p>
+在第四部分，我们将关注<b>对象</b>－从PHP 4中可用的简单的带函数的数组，到PHP 5可用的更复杂的重载的OOP结构。</p><br>
+
+<p style="text-align: center;">Copyright © Sara Golemon, 2006. All rights reserved.
+</p><br>
+</div>
+			  </div>
+			</div>
+		</div>
+
+<!-- Fireclick, Inc - COPYRIGHT 1999-2007 - Please do not modify this code-->
+
+<!-- Fireclick, Inc - COPYRIGHT 1999-2007 - Please do not modify this code-->
+</body></html>
