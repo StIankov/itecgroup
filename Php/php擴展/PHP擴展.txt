@@ -1,0 +1,2 @@
+1、BIC由PHP4轉換到PHP5
+2、改變PHP session的機制，使SESSION自動保存到新的位置（由PHP.INI配置）

@@ -1,0 +1,1093 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-US" dir="ltr">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>编写扩展 I：PHP和Zend起步</title>
+
+<meta name="Rating" content="General">
+<meta name="Distribution" content="Global">
+<meta name="Revisit-After" content="3 Days">
+<meta name="Copyright" content="1999-2006 Zend Technologies Ltd.">
+<meta name=" WT.cg_n" content="_Zend DevZone">
+<meta name="WT.seg_1" content="Community"> 
+<meta name="keywords" content="php, best practices, samples, articles, news, community, knowledge, Extension, Tutorials">
+
+<link rel="alternate" title="Zend Developer Zone - Home Page RSS Feed" href="http://feeds.feedburner.com/ZendDeveloperZone" type="application/rss+xml">  
+<link rel="alternate" title="Zend Developer Zone - Home Page Atom Feed" href="http://feeds.feedburner.com/ZendDeveloperZone" type="application/atom+xml">  
+<link rel="shortcut icon" href="favicon.ico"><!--Fireclick implementation-->
+<link rel="stylesheet" type="text/css" href="index.css" media="all">
+</head>
+<body>
+<img src="untitled" alt="" style="position: absolute; left: -9999px;">
+
+		<div id="container">
+			
+			<div id="middle">
+				
+               <div id="content" class="article-page">
+         	   
+	     <h1 id="page-heading">编写扩展 I：PHP和Zend起步</h1>
+	   <div class="article-info tag-list"> 
+	   		  <a href="http://devzone.zend.com/tag/Extension">扩展</a>&nbsp;&nbsp;
+	   		  <a href="http://devzone.zend.com/tag/Tutorials">教程</a>&nbsp;&nbsp;
+	   	   </div>       
+	   <div class="article-info">
+		   <span class="article-by">by <a href="http://devzone.zend.com/member/86-Cal-Evans-editor" title="Author profile and contributions">			 Sara Golemon</a></span>
+           <span class="comment-block"> | Monday, February 28, 2005 
+           </span>		   
+        </div>
+		<div class="clearfix"></div><br>
+		        
+		<!-- META
+Author: Sara Golemon
+Title:  Extension Writing Part I: Introduction to PHP and Zend
+Date:   28th February 2005
+-->
+<div>
+
+<p>
+<a href="#Heading1">介绍</a><br>
+<a href="#Heading2">扩展是什么？</a><br>
+<a href="#Heading3">生存周期</a><br>
+<a href="#Heading4">内存分配</a><br>
+<a href="#Heading5">建立构建环境</a><br>
+<a href="#Heading6">Hello World</a><br>
+<a href="#Heading7">构建你的扩展</a><br>
+<a href="#Heading8">初始设置（INI）</a><br>
+<a href="#Heading9">全局数值</a><br>
+<a href="#Heading10">初始设置（INI）作为全局数值</a><br>
+<a href="#Heading11">核对（代码）完整性</a><br>
+<a href="#Heading12">下一步是什么？</a><br>
+</p>
+
+<a name="Heading1"></a><h3>介绍</h3>
+<p>
+既然您正在阅读本教程，那么您或许对编写PHP语言的扩展感兴趣。如果不是...呃，或许你并不知道这一兴趣，那么我们结束的时候你就会发现它。
+</p>
+
+<p>
+本教程假定您基本熟悉PHP语言及其解释器实现所用的语言：<b>C</b>.
+</p>
+
+<p>
+让我们从指明为什么你想要编写PHP扩展开始。
+</p>
+
+<ol>
+  <li>限于PHP语言本身的抽象程度，它不能直接访问某些库或特定于操作系统的调用。</li>
+  <li>你想要通过某些不平常的方法定制PHP的行为。</li>
+  <li>你有一些现成的PHP代码，但是你知道它可以（运行）更快、（占用空间）更小，而且消耗更少的内存。</li>
+  <li>你有一些不错的代码出售，买家可以使用它，但重要的是不能看到源代码。</li>
+</ol>
+
+<p>
+这些都是非常正当的理由，但是，在创建扩展之前，你需要首先明白扩展是什么？
+</p>
+<a name="Heading2"></a><h3>扩展是什么？</h3>
+<p>
+如果你用过PHP，那么你肯定用到过扩展。除了少数例外，每个用户空间的函数都被组织在不同的扩展中。这些函数中的很多够成了<i>standard</i>扩展－总数超过400。PHP本身带有86个扩展（原文写就之时－译注），平均每个含有大约30个函数。数学操作方面大约有2500个函数。似乎这还不够， <a href="http://pecl.php.net/">PECL仓库</a>另外提供了超过100个扩展，而且互联网上可以找到更多。
+</p>
+
+<p>
+“除了扩展中的函数，还有什么？”我听到了你的疑问。
+“扩展的<i>里面</i>是什么？PHP的‘核心’是什么？”
+</p>
+
+<p>
+PHP的核心由两部分组成。最底层是<b>Zend引擎（ZE）</b>。ZE把人类易读的脚本解析成机器可读的符号，然后在进程空间内执行这些符号。ZE也处理内存管理、变量作用域及调度程序调用。另一部分是<b>PHP内核</b>，它绑定了<b>SAPI</b>层（Server Application Programming Interface，通常涉及主机环境，如Apache，IIS，CLI，CGI等），并处理与它的通信。它同时对<code>safe_mode</code>和<code>open_basedir</code>的检测提供一致的控制层，就像流层将<code>fopen()</code>、<code>fread()</code>和<code>fwrite()</code>等用户空间的函数与文件和网络I/O联系起来一样。
+</p>
+
+<a name="Heading3"></a><h3>生存周期</h3>
+<p>
+当给定的SAPI启动时，例如在对<code>/usr/local/apache/bin/apachectl start</code>的响应中，PHP由初始化其内核子系统开始。在接近启动例程的末尾，它加载每个扩展的代码并调用其<b>模块初始化</b>例程（<code>MINIT</code>）。这使得每个扩展可以初始化内部变量、分配资源、注册资源处理器，以及向ZE注册自己的函数，以便于脚本调用这其中的函数时候ZE知道执行哪些代码。
+</p>
+
+<p>
+接下来，PHP等待SAPI层请求要处理的页面。对于CGI或CLI等SAPI，这将立刻发生且只发生一次。对于Apache、IIS或其他成熟的web服务器SAPI，每次远程用户请求页面时都将发生，因此重复很多次，也可能并发。不管请求如何产生，PHP开始于要求ZE建立脚本的运行环境，然后调用每个扩展的<b>请求初始化</b>
+（<code>RINIT</code>）函数。<code>RINIT</code>使得扩展有机会设定特定的环境变量，根据请求分配资源，或者执行其他任务，如审核。 session扩展中有个<code>RINIT</code>作用的典型示例，如果启用了<code>session.auto_start</code>选项，<code>RINIT</code>将自动触发用户空间的<code>session_start()</code>函数以及预组装<code>$_SESSION</code>变量。
+</p>
+
+<p>
+一旦请求被初始化了，ZE开始接管控制权，将PHP脚本翻译成<b>符号</b>，最终形成<b>操作码</b>并逐步运行之。如任一操作码需要调用扩展的函数，ZE将会把参数绑定到该函数，并且临时交出控制权直到函数运行结束。
+</p>
+
+<p>
+脚本运行结束后，PHP调用每个扩展的<b>请求关闭</b>（<code>RSHUTDOWN</code>）函数以执行最后的清理工作（如将session变量存入磁盘）。接下来，ZE执行清理过程（<b>垃圾收集</b>）－有效地对之前的请求期间用到的每个变量执行<code>unset()</code>。
+</p>
+
+<p>
+一旦完成，PHP继续等待SAPI的其他文档请求或者是关闭信号。对于CGI和CLI等SAPI，<i>没有</i>“下一个请求”，所以SAPI立刻开始关闭。关闭期间，PHP再次遍历每个扩展，调用其<b>模块关闭</b>（<code>MSHUTDOWN</code>）函数，并最终关闭自己的内核子系统。
+</p>
+
+<p>
+这个过程乍听起来很让人气馁，但是一旦你深入一个运转的扩展，你会逐渐开始了解它。
+</p>
+
+<a name="Heading4"></a><h3>内存分配</h3>
+<p>
+为了避免写的不好的扩展丢失内存，ZE使用附加的标志来执行自己内部的内存管理器以标识持久性。<b>持久分配</b>的内存意味着比单次请求更持久。对比之下，对于在请求期间的<b>非持久分配</b>，不论是否调用释放（内存）函数，都将在请求尾期被释放。例如，用户空间的变量被分配为非持久的，因为请求结束后它们就没用了。
+</p>
+
+<p>
+然而，理论上，扩展可以依赖ZE在页面请求结束时自动释放非持久内存，但是不推荐这样做。因为分配的内存将在很长时间保持为未回收状态，与之相关联的资源可能得不到适当的关闭，并且吃饭不擦嘴是坏习惯。稍后你会发现，事实上确保所有分配的数据都被正确清理很容易。
+</p>
+
+<p>
+让我们简单地比较传统的内存分配函数（只应当在外部库中使用）和PHP/ZE的持久的以及非持久的内存非配函数。
+</p>
+
+<table class="tutorialTable">
+  <tbody><tr valign="top">
+    <th>传统的</th>
+    <th>非持久的</th>
+    <th>持久的</th>
+  </tr>
+  <tr valign="top">
+    <td><code>malloc(count)</code><br>
+      <code>calloc(count, num)</code>
+    </td>
+    <td><code>emalloc(count)</code><br>
+      <code>ecalloc(count, num)</code>
+    </td>
+    <td><code>pemalloc(count, 1)</code><sup>*</sup><br>
+    <code>pecalloc(count, num, 1)</code>
+    </td>
+  </tr>
+  <tr valign="top">
+    <td><code>strdup(str)</code><br>
+      <code>strndup(str, len)</code>
+    </td>
+    <td><code>estrdup(str)</code><br>
+    <code>estrndup(str, len)</code>
+    </td>
+    <td><code>pestrdup(str, 1)</code><br>
+      <code>pemalloc() &amp; memcpy()</code>
+    </td>
+  </tr>
+  <tr valign="top">
+    <td><code>free(ptr)</code></td>
+    <td><code>efree(ptr)</code></td>
+    <td><code>pefree(ptr, 1)</code></td>
+  </tr>
+  <tr valign="top">
+    <td><code>realloc(ptr, newsize)</code></td>
+    <td><code>erealloc(ptr, newsize)</code></td>
+    <td><code>perealloc(ptr, newsize, 1)</code></td>
+  </tr>
+  <tr valign="top">
+    <td><code>malloc(count * num + extr)</code><sup>**</sup></td>
+    <td><code>safe_emalloc(count, num, extr)</code></td>
+    <td><code>safe_pemalloc(count, num, extr)</code></td>
+  </tr>
+  <tr valign="bottom">
+    <td colspan="3">
+    * <i><code>pemalloc()</code>族包含一个‘持久’标志以允许它们实现对应的非持久函数的功能。<br>
+    &nbsp;&nbsp;&nbsp;例如：<code>emalloc(1234)</code>与<code>pemalloc(1234, 0)</code>相同。</i><br>
+    ** <i><code>safe_emalloc()</code>和（PHP 5中的）<code>safe_pemalloc()</code>执行附加检测以防整数溢出。</i></td>
+  </tr>
+</tbody></table>
+<br>
+
+<a name="Heading5"></a><h3>建立构建环境</h3>
+<p>
+既然你已经了解了一些PHP和Zend引擎的内部运行理论，我打赌你希望继续深入并开始构建一些东西。在此之前，你需要收集一些必需的构建工具并设定适合于你的目的的环境。
+</p>
+
+<p>
+首先，你需要PHP本身及其所需要的构建工具集。如果你不熟悉从源码构建PHP，我建议你看看<a href="http://www.php.net/install.unix">http://www.php.net/install.unix</a>。（为Windows开发PHP扩展将在以后的文章中提到）。然而，使用PHP的二进制分发包有些冒险，这些版本倾向于忽略<i>./configure</i>的两个重要选项，它们在开发过程中很便利。第一个<code>--enable-debug</code>。这个选项将把附加的符号信息编译进PHP的执行文件，以便如果发生段错误，你能从中得到一个内核转储文件，使用gdb追踪并发现什么地方以及为什么会发生段错误。另一个选项依赖于你的PHP版本。在PHP 4.3中该选项名为<code>--enable-experimental-zts</code>，在PHP 5及以后的版本中为<code>--enable-maintainer-zts</code>。这个选项使PHP以为自己执行于多线程环境，并且使你能捕获通常的程序错误，然而它们在非多线程环境中是无害的，却使你的扩展不可安全用于多线程环境。一旦你已经使用这些额外的选项编译了PHP并安装于你的开发服务器（或者工作站）中，你就可以把你的第一个扩展加入其中了。
+</p>
+
+<a name="Heading6"></a><h3>Hello World</h3>
+<p>
+什么程序设计的介绍可以完全忽略必需的<b>Hello
+World</b>程序？此例中，你将制作的扩展导出一个简单函数，它返回一个含有“Hello World”的字符串。用PHP的话你或许这样做：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+<span style="color: rgb(0, 0, 187);">&lt;?php<br>
+<br></span><span style="color: rgb(0, 119, 0);">function</span> <span style="color: rgb(0, 0, 187);">hello_world</span><span style="color: rgb(0, 119, 0);">() {<br>
+    return</span> <span style="color: rgb(221, 0, 0);">'Hello World'</span><span style="color: rgb(0, 119, 0);">;<br>
+}<br>
+<br></span><span style="color: rgb(0, 0, 187);">?&gt;</span><br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+现在你将把它转入PHP扩展。首先，我们在你的PHP源码树的目录<i>ext/</i>中创建一个名为<i>hello</i>的目录，并且<code>chdir</code>进入该目录。事实上，这个目录可以置于PHP源码树之中或之外的任何地方，但是我希望你把它放在这儿，以例示一个在以后的文章中出现的与此无关的概念。你需要在这儿创建3个文件：包含<code>hello_world</code>函数的<b>源码文件</b>，包含引用的<b>头文件</b>，PHP用它们加载你的扩展，以及<i>phpize</i>用来准备编译你的扩展的<b>配置文件</b>。
+</p>
+
+<h3>config.m4</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>PHP_ARG_ENABLE(hello, whether to enable Hello
+World support,<br>
+[ --enable-hello&nbsp;&nbsp;&nbsp;Enable Hello World support])<br>
+<br>
+if test "$PHP_HELLO" = "yes"; then<br>
+&nbsp;&nbsp;AC_DEFINE(HAVE_HELLO, 1, [Whether you have Hello World])<br>
+&nbsp;&nbsp;PHP_NEW_EXTENSION(hello, hello.c, $ext_shared)<br>
+fi<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<h3>php_hello.h</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifndef PHP_HELLO_H<br>
+#define PHP_HELLO_H 1<br>
+<br>
+#define PHP_HELLO_WORLD_VERSION "1.0"<br>
+#define PHP_HELLO_WORLD_EXTNAME "hello"<br>
+<br>
+PHP_FUNCTION(hello_world);<br>
+<br>
+extern zend_module_entry hello_module_entry;<br>
+#define phpext_hello_ptr &amp;hello_module_entry<br>
+<br>
+#endif<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<h3>hello.c</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifdef HAVE_CONFIG_H<br>
+#include "config.h"<br>
+#endif<br>
+<br>
+#include "php.h"<br>
+#include "php_hello.h"<br>
+<br>
+static function_entry hello_functions[] = {<br>
+    PHP_FE(hello_world, NULL)<br>
+    {NULL, NULL, NULL}<br>
+};<br>
+<br>
+zend_module_entry hello_module_entry = {<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    STANDARD_MODULE_HEADER,<br>
+#endif<br>
+    PHP_HELLO_WORLD_EXTNAME,<br>
+    hello_functions,<br>
+    NULL,<br>
+    NULL,<br>
+    NULL,<br>
+    NULL,<br>
+    NULL,<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    PHP_HELLO_WORLD_VERSION,<br>
+#endif<br>
+    STANDARD_MODULE_PROPERTIES<br>
+};<br>
+<br>
+#ifdef COMPILE_DL_HELLO<br>
+ZEND_GET_MODULE(hello)<br>
+#endif<br>
+<br>
+PHP_FUNCTION(hello_world)<br>
+{<br>
+    RETURN_STRING("Hello World", 1);<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+在上面的示例扩展中，你所看到的代码大多是黏合剂，作为将扩展引入PHP的协议语言并且在其间建立会话用于通信。只有最后四行才是你所认为“实际做事的代码”，它们负责与用户空间的脚本交互这一层次。这些代码看起来确实非常像之前看到的PHP代码，而且一看就懂：
+</p>
+
+<ol>
+  <li>声明一个名为<code>hello_world</code>的函数</li>
+  <li>让该函数返回字符串：“Hello World”</li>
+  <li>....嗯....1？ 那个1是怎么回事儿？</li>
+</ol>
+
+<p>
+回忆一下，ZE包含一个复杂的内存管理层，它可以确保分配的资源在脚本退出时被释放。然而，在内存管理领域，两次释放同一块内存是绝对禁止的（big no-no）。这种被称为<b>二次释放（double freeing）</b>的做法，是引起段错误的一个常见因素，原因是它使调用程序试图访问不再拥有的内存。类似地，你不应该让ZE去释放一个静态字符串缓冲区（如我们的示例扩展中的“Hello World”），因为它存在于程序空间，而不是被任何进程（process）拥有的数据块。<code>RETURN_STRING()</code>可以假定传入其中的任何字符串都需要被复制以便稍后可被安全地释放；但是由于内部的函数给字符串动态地分配内存、填充并返回并不罕见，第二参数<code>RETURN_STRING()</code>允许我们指定是否需要拷贝字符串的副本。要进一步说明这个概念，下面的代码片段与上面的对应版本等效：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_world)<br>
+{<br>
+    char *str;<br>
+<br>
+    str = estrdup("Hello World");<br>
+    RETURN_STRING(str, 0);<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+在这个版本中，你手工为最终将被传回调用脚本的字符串“Hello World”分配内存，然后把这快内存“给予”<code>RETURN_STRING()</code>，用第二参数<code>0</code>指出它不需要制作自己的副本，可以拥有我们的。
+</p>
+
+<a name="Heading7"></a><h3>构建你的扩展</h3>
+<p>
+本练习的最后一步是将你的扩展构建为可动态加载的模块。如果你已经正确地拷贝了上面的代码，只需要在<i>ext/hello/</i>中运行3个命令：
+</p>
+
+<pre>$ phpize
+$ ./configure --enable-hello
+$ make
+</pre>
+
+<p>
+每个命令都运行后，可在目录<i>ext/hello/modules/</i>中看到文件<i>hello.so</i>。现在，你可像其他扩展一样把它拷贝到你的扩展目录（默认是<i>/usr/local/lib/php/extensions/</i>，检查你的<i>php.ini</i>以确认），把<code>extension=hello.so</code>加入你的<i>php.ini</i>以使PHP启动时加载它。 对于CGI/CLI，下次运行PHP就会生效；对于web服务器SAPI，如Apache，需要重新启动web服务器。我们现在从命令行尝试下：
+</p>
+
+<pre>$ php -r 'echo hello_world();'
+</pre>
+
+<p>
+如果一切正常，你会看到这个脚本输出的<code>Hello World</code>，因为你的已加载的扩展中的函数<code>hello_world()</code>返回这个字符串，而且<code>echo</code>命令原样输出传给它的内容（本例中是函数的结果）。
+</p>
+
+<p>
+可以同样的方式返回其他标量，整数值用<code>RETURN_LONG()</code>，浮点值用 <code>RETURN_DOUBLE()</code>，true/false值用<code>RETURN_BOOL()</code>，<code>RETURN_NULL()</code>？你猜对了，是<code>NULL</code>。我们看下它们各自在实例中的应用，通过在文件<i>hello.c</i>中的<code>function_entry</code>结构中添加对应的几行<code>PHP_FE()</code>，并且在文件结尾添加一些<code>PHP_FUNCTION()</code>。
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+static function_entry hello_functions[] =
+{<br>
+    PHP_FE(hello_world, NULL)<br>
+    PHP_FE(hello_long, NULL)<br>
+    PHP_FE(hello_double, NULL)<br>
+    PHP_FE(hello_bool, NULL)<br>
+    PHP_FE(hello_null, NULL)<br>
+    {NULL, NULL, NULL}<br>
+};<br>
+<br>
+PHP_FUNCTION(hello_long)<br>
+{<br>
+    RETURN_LONG(42);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_double)<br>
+{<br>
+    RETURN_DOUBLE(3.1415926535);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_bool)<br>
+{<br>
+    RETURN_BOOL(1);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_null)<br>
+{<br>
+    RETURN_NULL();<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+你也需要在头文件<i>php_hello.h</i>中函数<code>hello_world()</code>的原型声明旁边加入这些函数的原型声明，以便构建进程正确进行：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_world);<br>
+PHP_FUNCTION(hello_long);<br>
+PHP_FUNCTION(hello_double);<br>
+PHP_FUNCTION(hello_bool);<br>
+PHP_FUNCTION(hello_null);<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+由于你没有改变文件<i>config.m4</i>，这次跳过<i>phpize</i>和<i>./configure</i>步骤直接跳到<i>make</i>在技术上是安全的。然而，此时我要你再次做完全部构建步骤，以确保构建良好。另外，你应该调用<i>make clean all</i>而不是简单地在最后一步<i>make</i>，确保所有源文件被重建。重复一遍，迄今为止，根据你所做得改变的类型这些（步骤）不是必需的，但是安全比混淆要好。一旦模块构建好了，再次把它拷贝到你的扩展目录，替换旧版本。
+</p>
+
+<p>
+此时你可以再次调用PHP解释器， 简单地传入脚本测试刚加入的函数。事实上，为什么不现在就做呢？我会在这儿等待...
+</p>
+
+<p>
+完成了？好的。如果用了<code>var_dump()</code>而不是<code>echo</code>查看每个函数的输出，你或许注意到了<code>hello_bool()</code>返回true。那就是<code>RETURN_BOOL()</code>中的值1表现的结果。和在PHP脚本中一样，整数值<code>0</code>等于<code>FALSE</code>，而其他整数等于<code>TRUE</code>。仅仅是作为约定，扩展作者通常用<code>1</code>，鼓励你也这么做，但是不要感觉被它限制了。出于另外的可读性目的，也可用宏<code>RETURN_TRUE</code>和<code>RETURN_FALSE</code>；再来一个<code>hello_bool()</code>，这次使用<code>RETURN_TRUE</code>：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_bool)<br>
+{<br>
+    RETURN_TRUE;<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+注意这儿没用括号。那样的话，与其他的宏<code>RETURN_*()</code>相比，<code>RETURN_TRUE</code>和<code>RETURN_FALSE</code>的样式有区别（are aberrations），所以确信不要被它误导了（to get caught by this one）。
+</p>
+
+<p>
+大概你注意到了，上面的每个范例中，我们都没传入0或1以表明是否进行拷贝。这是因为，对于类似这些简单的小型标量，不需要分配或释放额外的内存（除了变量容器自身－我们将在<a href="part 2-1.html">第二部分</a>作更深入的考查。）
+</p>
+
+<p>
+还有其他的三种返回类型：<code>资源</code>（就像<code>mysql_connect()</code>，<code>fsockopen()</code>和<code>ftp_connect()</code>返回的值的名字一样，但是不限于此），<code>数组</code>（也被称为<code>HASH</code>）和<code>对象</code>（由关键字<code>new</code>返回）。当我们深入地讲解变量时，会在第二部分看到它们。
+</p>
+
+<a name="Heading8"></a><h3>初始设置（INI）</h3>
+<p>
+Zend引擎提供了两种管理<code>INI</code>值的途径。现在我们来看简单一些的，然后当你处理全局数据时再探究更完善但也更复杂的方式。
+</p>
+
+<p>
+假设你要在<i>php.ini</i>中为你的扩展定义一个值，<code>hello.greeting</code>，它保存将在<code>hello_world()</code>函数中用到的问候字符串。你需要向<i>hello.c</i>和<i>php_hello.h</i>中增加一些代码，同时对<code>hello_module_entry</code>结构作一些关键性的改变。先在文件<i>php_hello.h</i>中靠近用户空间函数的原型声明处增加如下原型：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_MINIT_FUNCTION(hello);<br>
+PHP_MSHUTDOWN_FUNCTION(hello);<br>
+<br>
+PHP_FUNCTION(hello_world);<br>
+PHP_FUNCTION(hello_long);<br>
+PHP_FUNCTION(hello_double);<br>
+PHP_FUNCTION(hello_bool);<br>
+PHP_FUNCTION(hello_null);<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+现在进入文件<i>hello.c</i>，去掉当前版本的<code>hello_module_entry</code>，用下面的列表替换它：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+zend_module_entry hello_module_entry = {<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    STANDARD_MODULE_HEADER,<br>
+#endif<br>
+    PHP_HELLO_WORLD_EXTNAME,<br>
+    hello_functions,<br>
+    PHP_MINIT(hello),<br>
+    PHP_MSHUTDOWN(hello),<br>
+    NULL,<br>
+    NULL,<br>
+    NULL,<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    PHP_HELLO_WORLD_VERSION,<br>
+#endif<br>
+    STANDARD_MODULE_PROPERTIES<br>
+};<br>
+<br>
+PHP_INI_BEGIN()<br>
+PHP_INI_ENTRY("hello.greeting", "Hello World", PHP_INI_ALL, NULL)<br>
+PHP_INI_END()<br>
+<br>
+PHP_MINIT_FUNCTION(hello)<br>
+{<br>
+    REGISTER_INI_ENTRIES();<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_MSHUTDOWN_FUNCTION(hello)<br>
+{<br>
+    UNREGISTER_INI_ENTRIES();<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+现在，你只需要在文件<i>hello.c</i>顶部的那些<code>#include</code>旁边增加一个<code>#include</code>，这样可以获得正确的支持<code>INI</code>的头文件：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifdef HAVE_CONFIG_H<br>
+#include "config.h"<br>
+#endif<br>
+<br>
+#include "php.h"<br>
+#include "php_ini.h"<br>
+#include "php_hello.h"<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+最后，你可修改函数<code>hello_world</code>让它使用<code>INI</code>的值：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_world)<br>
+{<br>
+    RETURN_STRING(INI_STR("hello.greeting"), 1);<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+注意，你将要拷贝从<code>INI_STR()</code>返回的值。这是因为，在进入PHP变量堆栈之前（as far as the PHP variable stack is concerned），它都是个静态字符串。实际上，如果你试图修改这个返回的字符串，PHP执行环境会变得不稳定，甚至崩溃。
+</p>
+
+<p>
+本节中的第一处改变引入了两个你非常熟悉的函数：<code>MINIT</code>和<code>MSHUTDOWN</code>。正如<a href="#Heading3">稍早提到</a>的，这些方法在SAPI初始启动和最终关闭期间被各自调用。它们不会在请求期间和请求之间被调用。本例中它们用来将你的扩展中定义的条目向<i>php.ini</i>注册。本系列后面的教程中，你也将看到如何使用<code>MINIT</code>和<code>MSHUTDOWN</code>函数注册资源、对象和流处理器。
+</p>
+
+<p>
+函数<code>hello_world()</code>中使用<code>INI_STR()</code>取得<code>hello.greeting</code>条目的当前字符串值。也存在其他类似函数用于取得其他类型的值，长整型、双精度浮点型和布尔型，如下面表格中所示；同时也提供另外的<code>ORIG</code>版本，它们提供在<i>php.ini</i>文件中的<code>INI</code>（的原始）设定（在被 <i>.htaccess</i>或<code>ini_set()</code>指令改变之前）（原文：provides the value of the referenced INI setting as it was set in php.ini－译注）。
+</p>
+
+<table class="tutorialTable">
+  <tbody><tr valign="top">
+    <td>当前值</td>
+    <td>原始值</td>
+    <td>类型</td>
+  </tr>
+  <tr valign="top">
+    <td><code>INI_STR(name)</code></td>
+    <td><code>INI_ORIG_STR(name)</code></td>
+    <td><code>char *</code> (NULL terminated)</td>
+  </tr>
+  <tr valign="top">
+    <td><code>INI_INT(name)</code></td>
+    <td><code>INI_ORIG_INT(name)</code></td>
+    <td>signed long</td>
+  </tr>
+  <tr valign="top">
+    <td><code>INI_FLT(name)</code></td>
+    <td><code>INI_ORIG_FLT(name)</code></td>
+    <td>signed double</td>
+  </tr>
+  <tr valign="top">
+    <td><code>INI_BOOL(name)</code></td>
+    <td><code>INI_ORIG_BOOL(name)</code></td>
+    <td><code>zend_bool</code></td>
+  </tr>
+</tbody></table>
+
+<p>
+传入<code>PHP_INI_ENTRY()</code>的第一个参数含有在<i>php.ini</i>文件中用到的<b>名字</b>字符串。为了避免命名空间冲突，你应该使用同函数一样的约定，即是，将你的扩展的名字作为所有值的前缀，就像你对<code>hello.greeting</code>做的一样。仅仅是作为约定，一个句点被用来分隔扩展的名字和更具说明性的初始设定名字。
+</p>
+
+<p>
+第二个参数是<b>初始值</b>（默认值？－译注），而且，不管它是不是数字值，都要使用<code>char*</code>类型的字符串。这主要是依据如下事实：<i>.ini</i>文件中的原值就是文本－连同其他的一切作为一个文本文件存储。你在后面的脚本中所用到的<code>INI_INT()</code>、<code>INI_FLT()</code>或<code>INI_BOOL()</code>会进行类型转换。
+</p>
+
+<p>
+传入的第三个值是<b>访问模式修饰符</b>。这是个位掩码字段，它决定该<code>INI</code>值在何时和何处是可修改的。对于其中的一些，如<code>register_globals</code>，它只是不允许在脚本中用<code>ini_set()</code>改变该值，因为这个设定只在请求启动期间（在脚本能够运行之前）有意义。其他的，如<code>allow_url_fopen</code>，是管理（员才可进行的）设定，你不会希望共享主机环境的用户去修改它，不论是通过<code>ini_set()</code>还是<i>.htaccess</i>的指令。该参数的典型值可能是<code>PHP_INI_ALL</code>，表明该值可在任何地方被修改。然后还有<code>PHP_INI_SYSTEM|PHP_INI_PERDIR</code>，表明该设定可在<i>php.ini</i>文件中修改，或者通过<i>.htaccess</i>文件中的Apache指令修改，但是不能用<code>ini_set()</code>修改。或者，也可用<code>PHP_INI_SYSTEM</code>，表示该值只能在<i>php.ini</i>文件中修改，而不是任何其他地方。
+</p>
+
+<p>
+我们现在忽略第四个参数，只是提一下，它允许在初始设定发生改变时－例如使用<code>ini_set()</code>－触发一个方法回调。这使得当设定改变时，扩展可以执行更精确的控制，或是根据新的设定触发一个相关的行为。
+</p>
+
+<a name="Heading9"></a><h3>全局数值</h3>
+<p>
+扩展经常需要在一个特定的请求中由始至终跟踪一个值，而且要把它与可能同时发生的其他请求分开。在非多线程的SAPI中很简单：只是在源文件中声明一个全局变量并在需要时访问它。问题是，由于PHP被设计为可在多线程web服务器（如Apache 2和IIS）中运行，它需要保持各线程使用的全局数值的独立。通过使用TSRM (Thread Safe Resource
+Management，线程安全的资源管理器) 抽象层－有时称为ZTS（Zend Thread Safety，Zend线程安全），PHP将其极大地简化了。实际上，此时你已经用到了部分TSRM，只是没有意识到。（不要探寻的太辛苦；随着本系列的进行，你将到处看到它的身影。）
+</p>
+
+<p>
+如同任意的全局作用域，创建一个<b>线程安全的作用域</b>的第一步是声明它。鉴于本例的目标，你将会声明一个值为<code>0</code>的<code>long</code>型全局数值。每次<code>hello_long()</code>被调用，都将该值增1并返回。在<i>php_hello.h</i>文件中的<code>#define PHP_HELLO_H</code>语句后面加入下面的代码段：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifdef ZTS<br>
+#include "TSRM.h"<br>
+#endif<br>
+<br>
+ZEND_BEGIN_MODULE_GLOBALS(hello)<br>
+    long counter;<br>
+ZEND_END_MODULE_GLOBALS(hello)<br>
+<br>
+#ifdef ZTS<br>
+#define HELLO_G(v) TSRMG(hello_globals_id, zend_hello_globals *, v)<br>
+#else<br>
+#define HELLO_G(v) (hello_globals.v)<br>
+#endif<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+这次也会使用<code>RINIT</code>方法，所以你需要在头文件中声明它的原型：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_MINIT_FUNCTION(hello);<br>
+PHP_MSHUTDOWN_FUNCTION(hello);<br>
+PHP_RINIT_FUNCTION(hello);<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+现在我们回到文件<i>hello.c</i>中并紧接着包含代码块后面加入下面的代码：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifdef HAVE_CONFIG_H<br>
+#include "config.h"<br>
+#endif<br>
+<br>
+#include "php.h"<br>
+#include "php_ini.h"<br>
+#include "php_hello.h"<br>
+<br>
+ZEND_DECLARE_MODULE_GLOBALS(hello)<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+改变<code>hello_module_entry</code>，加入<code>PHP_RINIT(hello)</code>：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+zend_module_entry hello_module_entry = {<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    STANDARD_MODULE_HEADER,<br>
+#endif<br>
+    PHP_HELLO_WORLD_EXTNAME,<br>
+    hello_functions,<br>
+    PHP_MINIT(hello),<br>
+    PHP_MSHUTDOWN(hello),<br>
+    PHP_RINIT(hello),<br>
+    NULL,<br>
+    NULL,<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    PHP_HELLO_WORLD_VERSION,<br>
+#endif<br>
+    STANDARD_MODULE_PROPERTIES<br>
+};<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+而且修改你的<code>MINIT</code>函数，附带着另外两个函数，它们在请求启动时执行初始化：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+static void
+php_hello_init_globals(zend_hello_globals *hello_globals)<br>
+{<br>
+}<br>
+<br>
+PHP_RINIT_FUNCTION(hello)<br>
+{<br>
+    HELLO_G(counter) = 0;<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_MINIT_FUNCTION(hello)<br>
+{<br>
+    ZEND_INIT_MODULE_GLOBALS(hello, php_hello_init_globals,
+NULL);<br>
+<br>
+    REGISTER_INI_ENTRIES();<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+最后，你可修改<code>hello_long()</code>函数使用这个值：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_long)<br>
+{<br>
+    HELLO_G(counter)++;<br>
+<br>
+    RETURN_LONG(HELLO_G(counter));<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+在你加入<i>php_hello.h</i>的代码中，你用到了两个宏－<code>ZEND_BEGIN_MODULE_GLOBALS()</code>和<code>ZEND_END_MODULE_GLOBALS()</code>－用来创建一个名为<code>zend_hello_globals</code>的结构，它包含一个<code>long</code>型的变量。然后有条件地将<code>HELLO_G()</code>定义为从线程池中取得数值，或者从全局作用域中得到－如果你编译的目标是非多线程环境。
+</p>
+
+<p>
+在<i>hello.c</i>中，你用<code>ZEND_DECLARE_MODULE_GLOBALS()</code>宏来例示<code>zend_hello_globals</code>结构，或者是真的全局（如果此次构建是非线程安全的），或者是本线程的资源池的一个成员。作为扩展作者，我们不需要担心它们的区别，因为Zend引擎为我们打理好这个事情。最后，你在
+<code>MINIT</code>中用<code>ZEND_INIT_MODULE_GLOBALS()</code>分配一个线程安全的资源id－现在还不用考虑它是什么。
+</p>
+
+<p>
+你可能已经注意到了，<code>php_hello_init_globals()</code>实际上什么也没做，却得多声明个<code>RINIT</code>将变量counter初始化为<code>0</code>。为什么？
+</p>
+
+<p>
+关键在于这两个函数何时被调用。<code>php_hello_init_globals()</code>只在开始一个新的进程或线程时被调用；然而， 每个进程都能处理多个请求，所以用这个函数将变量counter初始化为<code>0</code>将只在第一个页面请求时运行。向同一进程发出的后续页面请求将仍会得到以前存储在这儿的counter变量的值，因此不会从<code>0</code>开始计数。要为每个页面请求把counter变量初始化为<code>0</code>，我们实现<code>RINIT</code>函数， 正如<a href="#Heading3">之前</a>看到的，它在每个页面请求之前被调用。此时我们包含<code>php_hello_init_globals()</code>函数是因为稍后你将会用到它，而且在<code>ZEND_INIT_MODULE_GLOBALS()</code>中为这个<code>初始化</code>函数传入<code>NULL</code>将导致在非多线程的平台产生段错误。
+</p>
+
+<a name="Heading10"></a><h3>初始设置（INI）作为全局数值</h3>
+<p>
+<a href="#Heading8">回想</a>一下，一个用<code>PHP_INI_ENTRY()</code>声明的<i>php.ini</i>值
+会作为字符串被解析，并按需用<code>INI_INT()</code>、<code>INI_FLT()</code>和<code>INI_BOOL()</code>转为其他格式。对于某些设定，那么做使得在脚本的执行过程中，当读取这些值时反复做大量不需要的重复工作。幸运的是，可以让ZE将<code>INI</code>值存储为特定的数据类型，并只在它的值被改变时执行类型转换。我们通过声明另一个<code>INI</code>值来尝试下，这次是个布尔值，用来指示变量counter是递增还是递减。开始吧，先把<i>php_hello.h</i>中的<code>MODULE_GLOBALS</code>块改成下面的代码：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+ZEND_BEGIN_MODULE_GLOBALS(hello)<br>
+    long counter;<br>
+    zend_bool direction;<br>
+ZEND_END_MODULE_GLOBALS(hello)<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+接下来，修改<code>PHP_INI_BEGIN()</code>块，声明<code>INI</code>值，像这样：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_INI_BEGIN()<br>
+    PHP_INI_ENTRY("hello.greeting", "Hello World",
+PHP_INI_ALL, NULL)<br>
+    STD_PHP_INI_ENTRY("hello.direction", "1", PHP_INI_ALL,
+OnUpdateBool, direction, zend_hello_globals, hello_globals)<br>
+PHP_INI_END()<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+现在用下面的代码初始化<code>init_globals</code>方法中的设定：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+static void
+php_hello_init_globals(zend_hello_globals *hello_globals)<br>
+{<br>
+    hello_globals-&gt;direction = 1;<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+并且最后，在<code>hello_long()</code>中应用这个初始设定来决定是递增还是递减：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_FUNCTION(hello_long)<br>
+{<br>
+    if (HELLO_G(direction)) {<br>
+        HELLO_G(counter)++;<br>
+    } else {<br>
+        HELLO_G(counter)--;<br>
+    }<br>
+<br>
+    RETURN_LONG(HELLO_G(counter));<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+就是这些。在<code>INI_ENTRY</code>部分指定的<code>OnUpdateBool</code>方法会自动地把<i>php.ini</i>、<i>.htaccess</i>或者脚本中通过<code>ini_set()</code>提供的值转换为适当的<code>TRUE</code>/<code>FALSE</code>值，这样你就可以在脚本中直接访问它们。<code>STD_PHP_INI_ENTRY</code>的最后三个参数告诉PHP去改变哪个全局变量，我们的扩展的全局（作用域）的结构是什么样子，以及持有这些变量的全局作用域的名字是什么。
+</p>
+
+<a name="Heading11"></a><h3>核对（代码）完整性</h3>
+<p>
+迄今为止，我们的三个文件应该类似于下面的列表。（为了可读性，一些项目被移动和重新组织了。）
+</p>
+
+<h3>config.m4</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>PHP_ARG_ENABLE(hello, whether to enable Hello
+World support,<br>
+[ --enable-hello&nbsp;&nbsp;&nbsp;Enable Hello World support])<br>
+<br>
+if test "$PHP_HELLO" = "yes"; then<br>
+&nbsp;&nbsp;AC_DEFINE(HAVE_HELLO, 1, [Whether you have Hello World])<br>
+&nbsp;&nbsp;PHP_NEW_EXTENSION(hello, hello.c, $ext_shared)<br>
+fi<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<h3>php_hello.h</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifndef PHP_HELLO_H<br>
+#define PHP_HELLO_H 1<br>
+<br>
+#ifdef ZTS<br>
+#include "TSRM.h"<br>
+#endif<br>
+<br>
+ZEND_BEGIN_MODULE_GLOBALS(hello)<br>
+    long counter;<br>
+    zend_bool direction;<br>
+ZEND_END_MODULE_GLOBALS(hello)<br>
+<br>
+#ifdef ZTS<br>
+#define HELLO_G(v) TSRMG(hello_globals_id, zend_hello_globals *, v)<br>
+#else<br>
+#define HELLO_G(v) (hello_globals.v)<br>
+#endif<br>
+<br>
+#define PHP_HELLO_WORLD_VERSION "1.0"<br>
+#define PHP_HELLO_WORLD_EXTNAME "hello"<br>
+<br>
+PHP_MINIT_FUNCTION(hello);<br>
+PHP_MSHUTDOWN_FUNCTION(hello);<br>
+PHP_RINIT_FUNCTION(hello);<br>
+<br>
+PHP_FUNCTION(hello_world);<br>
+PHP_FUNCTION(hello_long);<br>
+PHP_FUNCTION(hello_double);<br>
+PHP_FUNCTION(hello_bool);<br>
+PHP_FUNCTION(hello_null);<br>
+<br>
+extern zend_module_entry hello_module_entry;<br>
+#define phpext_hello_ptr &amp;hello_module_entry<br>
+<br>
+#endif<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<h3>hello.c</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifdef HAVE_CONFIG_H<br>
+#include "config.h"<br>
+#endif<br>
+<br>
+#include "php.h"<br>
+#include "php_ini.h"<br>
+#include "php_hello.h"<br>
+<br>
+ZEND_DECLARE_MODULE_GLOBALS(hello)<br>
+<br>
+static function_entry hello_functions[] = {<br>
+    PHP_FE(hello_world, NULL)<br>
+    PHP_FE(hello_long, NULL)<br>
+    PHP_FE(hello_double, NULL)<br>
+    PHP_FE(hello_bool, NULL)<br>
+    PHP_FE(hello_null, NULL)<br>
+    {NULL, NULL, NULL}<br>
+};<br>
+<br>
+zend_module_entry hello_module_entry = {<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    STANDARD_MODULE_HEADER,<br>
+#endif<br>
+    PHP_HELLO_WORLD_EXTNAME,<br>
+    hello_functions,<br>
+    PHP_MINIT(hello),<br>
+    PHP_MSHUTDOWN(hello),<br>
+    PHP_RINIT(hello),<br>
+    NULL,<br>
+    NULL,<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    PHP_HELLO_WORLD_VERSION,<br>
+#endif<br>
+    STANDARD_MODULE_PROPERTIES<br>
+};<br>
+<br>
+#ifdef COMPILE_DL_HELLO<br>
+ZEND_GET_MODULE(hello)<br>
+#endif<br>
+<br>
+PHP_INI_BEGIN()<br>
+    PHP_INI_ENTRY("hello.greeting", "Hello World",
+PHP_INI_ALL, NULL)<br>
+    STD_PHP_INI_ENTRY("hello.direction", "1", PHP_INI_ALL,
+OnUpdateBool, direction, zend_hello_globals, hello_globals)<br>
+PHP_INI_END()<br>
+<br>
+static void php_hello_init_globals(zend_hello_globals *hello_globals)<br>
+{<br>
+    hello_globals-&gt;direction = 1;<br>
+}<br>
+<br>
+PHP_RINIT_FUNCTION(hello)<br>
+{<br>
+    HELLO_G(counter) = 0;<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_MINIT_FUNCTION(hello)<br>
+{<br>
+    ZEND_INIT_MODULE_GLOBALS(hello, php_hello_init_globals,
+NULL);<br>
+<br>
+    REGISTER_INI_ENTRIES();<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_MSHUTDOWN_FUNCTION(hello)<br>
+{<br>
+    UNREGISTER_INI_ENTRIES();<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_world)<br>
+{<br>
+    RETURN_STRING("Hello World", 1);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_long)<br>
+{<br>
+    if (HELLO_G(direction)) {<br>
+        HELLO_G(counter)++;<br>
+    } else {<br>
+        HELLO_G(counter)--;<br>
+    }<br>
+<br>
+    RETURN_LONG(HELLO_G(counter));<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_double)<br>
+{<br>
+    RETURN_DOUBLE(3.1415926535);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_bool)<br>
+{<br>
+    RETURN_BOOL(1);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_null)<br>
+{<br>
+    RETURN_NULL();<br>
+}<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+<br>
+
+<a name="Heading12"></a><h3>下一步是什么？</h3>
+<p>
+本教程探究了一个简单PHP扩展的结构，包括导出函数、返回值、声明初始设置（<code>INI</code>）以及在（客户端）请求期间跟踪其内部状态。
+</p>
+
+<p>
+<a href="part 2-1.html">下一部分</a>，我们将探究PHP变量的内部结构，以及在脚本环境中如何存储、跟踪和维护它们。在函数被调用时，我们将使用<code>zend_parse_parameters</code>接收来自于程序的参数，以及探究如何返回更加复杂的结果，包括<code>数组</code>、<code>对象</code>和本教程提到的<code>资源</code>等类型。
+</p><br>
+
+<p style="text-align: center;">Copyright © Sara Golemon, 2005. All rights reserved.
+</p>
+</div>
+		</div>
+			  </div>
+				
+			</div>
+		</div>
+
+<!-- Fireclick, Inc - COPYRIGHT 1999-2007 - Please do not modify this code-->
+
+<!-- Fireclick, Inc - COPYRIGHT 1999-2007 - Please do not modify this code-->
+
+
+	
+</body></html>

@@ -1,0 +1,639 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-US" dir="ltr">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>编写扩展_II - 参数、数组和ZVALs[继续]</title>
+<meta name="Rating" content="General">
+<meta name="Distribution" content="Global">
+<meta name="Revisit-After" content="3 Days">
+<meta name="Copyright" content="1999-2006 Zend Technologies Ltd.">
+<meta name=" WT.cg_n" content="_Zend DevZone">
+<meta name="WT.seg_1" content="Community"> 
+<meta name="keywords" content="php, best practices, samples, articles, news, community, knowledge, Extension, Tutorials">
+
+<link rel="alternate" title="Zend Developer Zone - Home Page RSS Feed" href="http://feeds.feedburner.com/ZendDeveloperZone" type="application/rss+xml">  
+<link rel="alternate" title="Zend Developer Zone - Home Page Atom Feed" href="http://feeds.feedburner.com/ZendDeveloperZone" type="application/atom+xml">  
+<link rel="shortcut icon" href="favicon.ico"><!--Fireclick implementation-->
+
+<link rel="stylesheet" type="text/css" href="index.css" media="all"></head><body><img src="untitled" alt="" style="position: absolute; left: -9999px;">
+
+		<div id="container">
+			
+			<div id="middle">
+                
+               <div id="content" class="article-page">
+         	   
+	     <h1 id="page-heading">编写扩展_II - 参数、数组和ZVALs[继续]</h1>
+	   <div class="article-info tag-list"> 
+	   		  <a href="http://devzone.zend.com/tag/Extension">扩展</a>&nbsp;&nbsp;
+	   		  <a href="http://devzone.zend.com/tag/Tutorials">教程</a>&nbsp;&nbsp;
+	   	   </div>       
+	   <div class="article-info">
+		   <span class="article-by">by <a href="http://devzone.zend.com/member/86-Cal-Evans-editor" title="Author profile and contributions">			 Sara Golemon</a></span>
+           <span class="comment-block"> | Sunday, June 5, 2005 
+           </span>		   
+        </div>
+		<div class="clearfix"></div><br>
+		        
+		<!-- META
+Author: Sara Golemon
+Title:  Extension Writing Part II: Parameters, Arrays, and ZVALs [continued]
+Date:   5th June 2005
+-->
+<div>
+
+<p>
+ . <a href="part 2-1.html#Heading1">介绍</a><br>
+ . <a href="part 2-1.html#Heading2">接收数值</a><br>
+ . <a href="part 2-1.html#Heading3">ZVAL</a><br>
+ . <a href="part 2-1.html#Heading4">创建ZVALs</a><br>
+ . <a href="part 2-1.html#Heading5">数组</a><br>
+ . <a href="part 2-1.html#Heading6">符号表作为数组</a><br>
+ . <a href="part 2-1.html#Heading7">引用计数</a><br>
+<a href="#Heading8">拷贝 vs 引用</a><br>
+<a href="#Heading9">核对（代码）完整性</a><br>
+<a href="#Heading10">下一步是什么？</a><br>
+</p>
+
+
+<a name="Heading8"></a><h3>拷贝 vs 引用</h3>
+<p>
+有两种方法引用<code>zval</code>。第一种，如上文示范的，被称为<b>写复制引用</b>（copy-on-write referencing）。第二种形式是<b>完全引用</b>（full referencing）；当说起“引用”时，用户空间代码的编写者更熟悉这种, 以用户空间代码的形式出现类似于：<code>$a = &amp;$b;</code>。
+</p>
+
+<p>
+在<code>zval</code>中，这两种类型的区别在于它的<code>is_ref</code>成员的值，0表示写复制引用，非0表示完全引用。注意，一个<code>zval</code>不可能同时具有两种引用类型。所以，如果变量起初是<code>is_ref</code>（即完全引用－译注），然后以拷贝的方式赋给新的变量，那么必将执行一个完全拷贝。考虑下面的用户空间代码：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+<span style="color: rgb(0, 0, 187);">&lt;?php<br>
+<br>
+    $a</span> <span style="color: rgb(0, 119, 0);">=</span> <span style="color: rgb(0, 0, 187);">1</span><span style="color: rgb(0, 119, 0);">;<br>
+    </span><span style="color: rgb(0, 0, 187);">$b</span> <span style="color: rgb(0, 119, 0);">= &amp;</span><span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">;<br>
+    </span><span style="color: rgb(0, 0, 187);">$c</span> <span style="color: rgb(0, 119, 0);">=</span> <span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">;<br>
+<br></span><span style="color: rgb(0, 0, 187);">?&gt;<br></span>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+在这段代码中，为<code>$a</code>创建并初始化了一个<code>zval</code>，将<code>is_ref</code>设为0，将<code>refcount</code>设为1。当<code>$a</code>被<code>$b</code>引用时，<code>is_ref</code>变为1，<code>refcount</code>递增至2。当拷贝至<code>$c</code>时，Zend引擎不能只是递增<code>refcount</code>至3，因为如此则<code>$c</code>变成了<code>$a</code>的完全引用。关闭<code>is_ref</code>也不行，因为如此会使<code>$b</code>看起来像是<code>$a</code>的一份拷贝而不是引用。所以此时分配了一个新的<code>zval</code>，并使用<code>zval_copy_ctor()</code>把原始（zval）的值拷贝给它。原始<code>zval</code>仍为<code>is_ref==1</code>、<code>refcount==2</code>，同时新<code>zval</code>则为<code>is_ref=0</code>、<code>refcount=1</code>。现在来看另一块内容相同的代码块，只是顺序稍有不同：
+</p>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+<span style="color: rgb(0, 0, 187);">&lt;?php<br>
+<br>
+    $a</span> <span style="color: rgb(0, 119, 0);">=</span> <span style="color: rgb(0, 0, 187);">1</span><span style="color: rgb(0, 119, 0);">;<br>
+    </span><span style="color: rgb(0, 0, 187);">$c</span> <span style="color: rgb(0, 119, 0);">=</span> <span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">;<br>
+    </span><span style="color: rgb(0, 0, 187);">$b</span> <span style="color: rgb(0, 119, 0);">= &amp;</span><span style="color: rgb(0, 0, 187);">$a</span><span style="color: rgb(0, 119, 0);">;<br>
+<br></span><span style="color: rgb(0, 0, 187);">?&gt;<br></span>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<p>
+最终结果不变，<code>$b</code>是<code>$a</code>的完全引用，并且<code>$c</code>是<code>$a</code>的一份拷贝。然而这次的内部效果稍有区别。如前，开始时为<code>$a</code>创建一个<code>is_ref==0</code>并且<code>refcount=1</code>的新<code>zval</code>。<code>$c = $a;</code>语句将同一个<code>zval</code>赋给<code>$c</code>变量，同时将<code>refcount</code>增至2，<code>is_ref</code>仍是0。当Zend引擎遇到<code>$b = &amp;$a;</code>，它想要只是将<code>is_ref</code>设为1，但是当然不行，因为那将影响到<code>$c</code>。所以改为创建新的<code>zval</code>并用<code>zval_copy_ctor()</code>将原始（zval）的内容拷贝给它。然后递减原始<code>zval</code>的<code>refcount</code>以表明<code>$a</code>不再使用该<code>zval</code>。代替地，（Zend）设置新<code>zval</code>的<code>is_ref</code>为1、<code>refcount</code>为2，并且更新<code>$a</code>和<code>$b</code>变量指向它（新zval）。
+</p>
+
+<a name="Heading9"></a><h3>核对（代码）完整性</h3>
+<p>
+如前，下面是我们的三个主要文件的完整代码：
+</p>
+
+<h3>config.m4</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+PHP_ARG_ENABLE(hello, [whether to enable Hello World support],<br>
+    [ --enable-hello&nbsp;&nbsp;&nbsp;Enable Hello World support])<br>
+    <br>
+    if test "$PHP_HELLO" = "yes"; then<br>
+    &nbsp;&nbsp;AC_DEFINE(HAVE_HELLO, 1, [Whether you have Hello World])<br>
+    &nbsp;&nbsp;PHP_NEW_EXTENSION(hello, hello.c, $ext_shared)<br>
+    fi<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<h3>php_hello.h</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifndef PHP_HELLO_H<br>
+#define PHP_HELLO_H 1<br>
+<br>
+#ifdef ZTS<br>
+#include "TSRM.h"<br>
+#endif<br>
+<br>
+ZEND_BEGIN_MODULE_GLOBALS(hello)<br>
+    long counter;<br>
+    zend_bool direction;<br>
+ZEND_END_MODULE_GLOBALS(hello)<br>
+<br>
+#ifdef ZTS<br>
+#define HELLO_G(v) TSRMG(hello_globals_id, zend_hello_globals *, v)<br>
+#else<br>
+#define HELLO_G(v) (hello_globals.v)<br>
+#endif<br>
+<br>
+#define PHP_HELLO_WORLD_VERSION "1.0"<br>
+#define PHP_HELLO_WORLD_EXTNAME "hello"<br>
+<br>
+PHP_MINIT_FUNCTION(hello);<br>
+PHP_MSHUTDOWN_FUNCTION(hello);<br>
+PHP_RINIT_FUNCTION(hello);<br>
+<br>
+PHP_FUNCTION(hello_world);<br>
+PHP_FUNCTION(hello_long);<br>
+PHP_FUNCTION(hello_double);<br>
+PHP_FUNCTION(hello_bool);<br>
+PHP_FUNCTION(hello_null);<br>
+PHP_FUNCTION(hello_greetme);<br>
+PHP_FUNCTION(hello_add);<br>
+PHP_FUNCTION(hello_dump);<br>
+PHP_FUNCTION(hello_array);<br>
+PHP_FUNCTION(hello_array_strings);<br>
+PHP_FUNCTION(hello_array_walk);<br>
+PHP_FUNCTION(hello_array_value);<br>
+PHP_FUNCTION(hello_get_global_var);<br>
+PHP_FUNCTION(hello_set_local_var);<br>
+<br>
+extern zend_module_entry hello_module_entry;<br>
+#define phpext_hello_ptr &amp;hello_module_entry<br>
+<br>
+#endif<br>
+<br>
+</code>
+</td>
+  </tr>
+</tbody></table>
+
+<h3>hello.c</h3>
+
+<table class="tutorialExample">
+  <tbody><tr>
+    <td>
+<code>
+#ifdef HAVE_CONFIG_H<br>
+#include "config.h"<br>
+#endif<br>
+<br>
+#include "php.h"<br>
+#include "php_ini.h"<br>
+#include "php_hello.h"<br>
+<br>
+ZEND_DECLARE_MODULE_GLOBALS(hello)<br>
+<br>
+static function_entry hello_functions[] = {<br>
+    PHP_FE(hello_world, NULL)<br>
+    PHP_FE(hello_long, NULL)<br>
+    PHP_FE(hello_double, NULL)<br>
+    PHP_FE(hello_bool, NULL)<br>
+    PHP_FE(hello_null, NULL)<br>
+    PHP_FE(hello_greetme, NULL)<br>
+    PHP_FE(hello_add, NULL)<br>
+    PHP_FE(hello_dump, NULL)<br>
+    PHP_FE(hello_array, NULL)<br>
+    PHP_FE(hello_array_strings, NULL)<br>
+    PHP_FE(hello_array_walk, NULL)<br>
+    PHP_FE(hello_array_value, NULL)<br>
+    PHP_FE(hello_get_global_var, NULL)<br>
+    PHP_FE(hello_set_local_var, NULL)<br>
+    {NULL, NULL, NULL}<br>
+};<br>
+<br>
+zend_module_entry hello_module_entry = {<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    STANDARD_MODULE_HEADER,<br>
+#endif<br>
+    PHP_HELLO_WORLD_EXTNAME,<br>
+    hello_functions,<br>
+    PHP_MINIT(hello),<br>
+    PHP_MSHUTDOWN(hello),<br>
+    PHP_RINIT(hello),<br>
+    NULL,<br>
+    NULL,<br>
+#if ZEND_MODULE_API_NO &gt;= 20010901<br>
+    PHP_HELLO_WORLD_VERSION,<br>
+#endif<br>
+    STANDARD_MODULE_PROPERTIES<br>
+};<br>
+<br>
+#ifdef COMPILE_DL_HELLO<br>
+    ZEND_GET_MODULE(hello)<br>
+#endif<br>
+<br>
+PHP_INI_BEGIN()<br>
+    PHP_INI_ENTRY("hello.greeting", "Hello World", PHP_INI_ALL, NULL)<br>
+    STD_PHP_INI_ENTRY("hello.direction", "1", PHP_INI_ALL, OnUpdateBool,\
+	    direction, zend_hello_globals, hello_globals)<br>
+PHP_INI_END()<br>
+<br>
+static void php_hello_init_globals(zend_hello_globals *hello_globals)<br>
+{<br>
+    hello_globals-&gt;direction = 1;<br>
+}<br>
+<br>
+PHP_RINIT_FUNCTION(hello)<br>
+{<br>
+    HELLO_G(counter) = 0;<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_MINIT_FUNCTION(hello)<br>
+{<br>
+    ZEND_INIT_MODULE_GLOBALS(hello, php_hello_init_globals, NULL);<br>
+<br>
+    REGISTER_INI_ENTRIES();<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_MSHUTDOWN_FUNCTION(hello)<br>
+{<br>
+    UNREGISTER_INI_ENTRIES();<br>
+<br>
+    return SUCCESS;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_world)<br>
+{<br>
+    RETURN_STRING("Hello World", 1);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_long)<br>
+{<br>
+    if (HELLO_G(direction)) {<br>
+        HELLO_G(counter)++;<br>
+    } else {<br>
+        HELLO_G(counter)--;<br>
+    }<br>
+<br>
+    RETURN_LONG(HELLO_G(counter));<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_double)<br>
+{<br>
+    RETURN_DOUBLE(3.1415926535);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_bool)<br>
+{<br>
+    RETURN_BOOL(1);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_null)<br>
+{<br>
+    RETURN_NULL();<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_greetme)<br>
+{<br>
+    zval *zname;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &amp;zname) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    convert_to_string(zname);<br>
+<br>
+    php_printf("Hello ");<br>
+    PHPWRITE(Z_STRVAL_P(zname), Z_STRLEN_P(zname));<br>
+    php_printf("\n");<br>
+    <br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_add)<br>
+{<br>
+    long a;<br>
+    double b;<br>
+    zend_bool return_long = 0;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ld|b",
+        &amp;a, &amp;b, &amp;return_long) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    if (return_long) {<br>
+        RETURN_LONG(a + b);<br>
+    } else {<br>
+        RETURN_DOUBLE(a + b);<br>
+    }<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_dump)<br>
+{<br>
+    zval *uservar;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &amp;uservar) == FAILURE) {<br>
+    RETURN_NULL();<br>
+    }<br>
+<br>
+    switch (Z_TYPE_P(uservar)) {<br>
+    case IS_NULL:<br>
+        php_printf("NULL\n");<br>
+        break;<br>
+    case IS_BOOL:<br>
+        php_printf("Boolean: %s\n", Z_LVAL_P(uservar) ? "TRUE" : "FALSE");<br>
+        break;<br>
+    case IS_LONG:<br>
+        php_printf("Long: %ld\n", Z_LVAL_P(uservar));<br>
+        break;<br>
+    case IS_DOUBLE:<br>
+        php_printf("Double: %f\n", Z_DVAL_P(uservar));<br>
+        break;<br>
+    case IS_STRING:<br>
+        php_printf("String: ");<br>
+        PHPWRITE(Z_STRVAL_P(uservar), Z_STRLEN_P(uservar));<br>
+        php_printf("\n");<br>
+        break;<br>
+    case IS_RESOURCE:<br>
+        php_printf("Resource\n");<br>
+        break;<br>
+    case IS_ARRAY:<br>
+        php_printf("Array\n");<br>
+        break;<br>
+    case IS_OBJECT:<br>
+        php_printf("Object\n");<br>
+        break;<br>
+    default:<br>
+        php_printf("Unknown\n");<br>
+    }<br>
+<br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_array)<br>
+{<br>
+    char *mystr;<br>
+    zval *mysubarray;<br>
+<br>
+    array_init(return_value);<br>
+<br>
+    add_index_long(return_value, 42, 123);<br>
+<br>
+    add_next_index_string(return_value, "I should now be found at index 43", 1);<br>
+<br>
+    add_next_index_stringl(return_value, "I'm at 44!", 10, 1);<br>
+<br>
+    mystr = estrdup("Forty Five");<br>
+    add_next_index_string(return_value, mystr, 0);<br>
+<br>
+    add_assoc_double(return_value, "pi", 3.1415926535);<br>
+<br>
+    ALLOC_INIT_ZVAL(mysubarray);<br>
+    array_init(mysubarray);<br>
+    add_next_index_string(mysubarray, "hello", 1);<br>
+    php_printf("mysubarray-&gt;refcount = %d\n", mysubarray-&gt;refcount);<br>
+    mysubarray-&gt;refcount = 2;<br>
+    php_printf("mysubarray-&gt;refcount = %d\n", mysubarray-&gt;refcount);<br>
+    add_assoc_zval(return_value, "subarray", mysubarray);<br>
+<br>
+    php_printf("mysubarray-&gt;refcount = %d\n", mysubarray-&gt;refcount);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_array_strings)<br>
+{<br>
+    zval *arr, **data;<br>
+    HashTable *arr_hash;<br>
+    HashPosition pointer;<br>
+    int array_count;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "a", &amp;arr) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    arr_hash = Z_ARRVAL_P(arr);<br>
+    array_count = zend_hash_num_elements(arr_hash);<br>
+<br>
+    php_printf("The array passed contains %d elements\n", array_count);<br>
+<br>
+    for(zend_hash_internal_pointer_reset_ex(arr_hash, &amp;pointer);
+        zend_hash_get_current_data_ex(arr_hash, (void**) &amp;data, &amp;pointer) == SUCCESS;
+        zend_hash_move_forward_ex(arr_hash, &amp;pointer)) {<br>
+<br>
+        zval temp;<br>
+        char *key;<br>
+        int key_len;<br>
+        long index;<br>
+<br>
+        if (zend_hash_get_current_key_ex(arr_hash, &amp;key, &amp;key_len,
+            &amp;index, 0, &amp;pointer) == HASH_KEY_IS_STRING) {<br>
+            PHPWRITE(key, key_len);<br>
+        } else {<br>
+            php_printf("%ld", index);<br>
+        }<br>
+<br>
+        php_printf(" =&gt; ");<br>
+<br>
+        temp = **data;<br>
+        zval_copy_ctor(&amp;temp);<br>
+        convert_to_string(&amp;temp);<br>
+        PHPWRITE(Z_STRVAL(temp), Z_STRLEN(temp));<br>
+        php_printf("\n");<br>
+        zval_dtor(&amp;temp);<br>
+    }<br>
+<br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+static int php_hello_array_walk(zval **element TSRMLS_DC)<br>
+{<br>
+    zval temp;<br>
+<br>
+    temp = **element;<br>
+    zval_copy_ctor(&amp;temp);<br>
+    convert_to_string(&amp;temp);<br>
+    PHPWRITE(Z_STRVAL(temp), Z_STRLEN(temp));<br>
+    php_printf("\n");<br>
+    zval_dtor(&amp;temp);<br>
+<br>
+    return ZEND_HASH_APPLY_KEEP;<br>
+}<br>
+<br>
+static int php_hello_array_walk_arg(zval **element, char *greeting TSRMLS_DC)<br>
+{<br>
+    php_printf("%s", greeting);<br>
+    php_hello_array_walk(element TSRMLS_CC);<br>
+<br>
+    return ZEND_HASH_APPLY_KEEP;<br>
+}<br>
+<br>
+static int php_hello_array_walk_args(zval **element, int num_args,
+    var_list args, zend_hash_key *hash_key)<br>
+{<br>
+    char *prefix = va_arg(args, char*);<br>
+    char *suffix = va_arg(args, char*);<br>
+    TSRMLS_FETCH();<br>
+<br>
+    php_printf("%s", prefix);<br>
+    php_hello_array_walk(element TSRMLS_CC);<br>
+    php_printf("%s\n", suffix);<br>
+<br>
+    return ZEND_HASH_APPLY_KEEP;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_array_walk)<br>
+{<br>
+    zval *zarray;<br>
+    int print_newline = 1;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "a", &amp;zarray) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    zend_hash_apply(Z_ARRVAL_P(zarray), (apply_func_t)php_hello_array_walk TSRMLS_CC);<br>
+    zend_hash_internal_pointer_reset(Z_ARRVAL_P(zarray));<br>
+    zend_hash_apply_with_argument(Z_ARRVAL_P(zarray),
+        (apply_func_arg_t)php_hello_array_walk_arg, "Hello " TSRMLS_CC);<br>
+    zend_hash_apply_with_arguments(Z_ARRVAL_P(zarray),
+        (apply_func_args_t)php_hello_array_walk_args, 2, "Hello ",
+        "Welcome to my extension!");<br>
+<br>
+    RETURN_TRUE;<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_array_value)<br>
+{<br>
+    zval *zarray, *zoffset, **zvalue;<br>
+    long index = 0;<br>
+    char *key = NULL;<br>
+    int key_len = 0;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "az",
+        &amp;zarray, &amp;zoffset) == FAILURE) {<br>
+    RETURN_NULL();<br>
+    }<br>
+<br>
+    switch (Z_TYPE_P(zoffset)) {<br>
+    case IS_NULL:<br>
+        index = 0;<br>
+        break;<br>
+    case IS_DOUBLE:<br>
+        index = (long)Z_DVAL_P(zoffset);<br>
+        break;<br>
+    case IS_BOOL:<br>
+    case IS_LONG:<br>
+    case IS_RESOURCE:<br>
+        index = Z_LVAL_P(zoffset);<br>
+        break;<br>
+    case IS_STRING:<br>
+        key = Z_STRVAL_P(zoffset);<br>
+        key_len = Z_STRLEN_P(zoffset);<br>
+        break;<br>
+    case IS_ARRAY:<br>
+        key = "Array";<br>
+        key_len = <a>sizeof</a>("Array") - 1;<br>
+        break;<br>
+    case IS_OBJECT:<br>
+        key = "Object";<br>
+        key_len = <a>sizeof</a>("Object") - 1;<br>
+        break;<br>
+    default:<br>
+        key = "Unknown";<br>
+        key_len = <a>sizeof</a>("Unknown") - 1;<br>
+    }<br>
+<br>
+    if (key &amp;&amp; zend_hash_find(Z_ARRVAL_P(zarray),
+        key, key_len + 1, (void**)&amp;zvalue) == FAILURE) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_NOTICE, "Undefined index: %s", key);<br>
+        RETURN_NULL();<br>
+    } else if (!key &amp;&amp; zend_hash_index_find(Z_ARRVAL_P(zarray),
+        index, (void**)&amp;zvalue) == FAILURE) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_NOTICE, "Undefined index: %ld", index);<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    *return_value = **zvalue;<br>
+    zval_copy_ctor(return_value);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_get_global_var)<br>
+{<br>
+    char *varname;<br>
+    int varname_len;<br>
+    zval **varvalue;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s",
+        &amp;varname, &amp;varname_len) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    if (zend_hash_find(&amp;EG(symbol_table), varname, varname_len + 1,
+        (void**)&amp;varvalue) == FAILURE) {<br>
+        php_error_docref(NULL TSRMLS_CC, E_NOTICE, "Undefined variable: %s", varname);<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    *return_value = **varvalue;<br>
+    zval_copy_ctor(return_value);<br>
+}<br>
+<br>
+PHP_FUNCTION(hello_set_local_var)<br>
+{<br>
+    zval *newvar;<br>
+    char *varname;<br>
+    int varname_len;<br>
+    zval *value;<br>
+<br>
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz",
+        &amp;varname, &amp;varname_len, &amp;value) == FAILURE) {<br>
+        RETURN_NULL();<br>
+    }<br>
+<br>
+    ALLOC_INIT_ZVAL(newvar);<br>
+    *newvar = *value;<br>
+    zval_copy_ctor(newvar);<br>
+<br>
+    zend_hash_add(EG(active_symbol_table), varname, varname_len + 1,
+        &amp;newvar, <a>sizeof</a>(zval*), NULL);<br>
+<br>
+    RETURN_TRUE;<br>
+}
+</code>
+</td>
+  </tr>
+</tbody></table><a name="Heading10"></a><h3>下一步是什么？</h3>
+<p>
+在本教程－编写扩展系列的第二部分中，你学习了如何接收函数参数，创建并使用了数组，更重要的是了解了<code>zval</code>的内部运作方式。<a href="part 3.html">第３部分</a>将关注<code>资源</code>数据类型并开始处理更复杂的数据结构。
+</p>
+<!--
+<p>
+For more information on reference counting, see Andi Gutmans' tutorial <a href='/zend/art/ref-count.php'>elsewhere on this site</a>.
+</p>
+-->
+<br>
+
+<p style="text-align: center;">Copyright © Sara Golemon, 2005. All rights reserved.
+</p><br>
+</div>
+        
+        		
+			  </div>
+				
+    			<div class="clearfix"></div>
+				
+			</div>
+		</div>
+
+<!-- Fireclick, Inc - COPYRIGHT 1999-2007 - Please do not modify this code-->
+
+<!-- Fireclick, Inc - COPYRIGHT 1999-2007 - Please do not modify this code-->
+
+
+	</body></html>
