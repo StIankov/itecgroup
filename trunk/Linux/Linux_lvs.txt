@@ -1,0 +1,372 @@
+Linux virtual server 建立手册
+
+TCP/IP网络图示
+
+                        ________
+                       |        |
+                       | client |
+                       |________|
+                   CIP= SGW =192.168.1.254/24 (eth0)
+                           |
+                           |
+   eth1      __________    |
+192.168.0.10| director |   |   
+    --------| primiary |---|   DIP=192.168.1.80/24 (eth0)
+    |       |__________|   |   
+    |        ttyS0|        |
+    |heartbeat    |        |
+    |backup       |        |   VIP=192.168.1.8/32 (eth0:0)*
+    |        ttyS0|        |
+    |        _____|____    |
+    |       | director |   |   
+    --------| backup   |---|   DIP=192.168.1.81/24 (eth0)
+    eth1    |__________|   |   
+192.168.0.11               |
+                           |
+                           |
+                           |
+                           |
+          -----------------------------------
+          |                                 | 
+          |                                 |
+ RIP=192.168.1.11/24 (eth0)      RIP=192.168.1.12/24 (eth0)
+ VIP=192.168.1.8/32  (lo:0)      VIP=192.168.1.8/32  (lo:0)                
+    ____________                       ____________   
+   |            |                     |            |  
+   | realserver |    -----------      | realserver |  
+   |____________|                     |____________|
+
+
+一、服务器内核编译
+
+export tmp=/tmp
+mkdir $tmp
+cd $tmp
+#原版核心包
+wget http://www.kernel.org/pub/linux/kernel/v2.4/linux-2.4.20.tar.gz 
+#ipvs补丁包
+wget http://www.linuxvirtualserver.org/software/kernel-2.4/linux-2.4.20-ipvs-1.0.9.patch.gz 
+#ipvs包,内有no arp补丁包
+wget http://www.linuxvirtualserver.org/software/kernel-2.4/ipvs-1.0.9.tar.gz 
+#ipvsadm包
+wget http://www.linuxvirtualserver.org/software/kernel-2.4/ipvsadm-1.21.tar.gz 
+
+tar zxvf linux-2.4.20.tar.gz
+tar zxvf ipvs-1.0.9.tar.gz
+gunzip linux-2.4.20-ipvs-1.0.9.patch.gz
+cd linux-2.4.20
+#no arp补丁
+patch -p1 < /tmp/ipvs-1.0.9/contrib/patches/hidden-2.4.20pre10-1.diff
+#ipvs补丁
+patch -p1 < /tmp/linux-2.4.20-ipvs-1.0.9.patch
+cd /tmp
+mv linux-2.4.20 /usr/src/linux
+cd /usr/src/linux
+#清除设置
+make mrproper
+#使用原有设置项目
+cp /boot/config-2.4.20-8smp .config
+#设置ipvs相关项目:Networking options==>IP ipvs
+make menuconfig
+make dep
+make clean
+make bzImage
+make modules
+make modules_install
+
+mkinitrd /boot/initrd-2.4.20-8smp-lvs.img 2.4.20
+cp arch/i386/boot/bzImage /boot/vmlinuz-2.4.20-8smp-lvs
+cp System.map /boot/System.map-2.4.20-8smp-lvs
+cp vmlinux /boot/vmlinux-2.4.20-8smp-lvs
+cd /boot
+rm System.map -f
+ln -s System.map-2.4.20-8smp-lvs System.map
+
+#修改/etc/lilo.conf
+prompt
+timeout=50
+default=linux_rs
+boot=/dev/hda
+map=/boot/map
+install=/boot/boot.b
+message=/boot/message
+linear
+
+image=/boot/vmlinuz-2.4.20-8-lvs
+        label=linux_lvs
+        initrd=/boot/initrd-2.4.20-8-lvs.img
+        read-only
+        append="hdc=ide-scsi root=LABEL=/"
+
+image=/boot/vmlinuz-2.4.20
+        label=linux
+        initrd=/boot/initrd-2.4.20.img
+        read-only
+        append="hdc=ide-scsi root=LABEL=/"
+
+#更新lilo
+/etc/lilo
+#重启...
+
+
+二、LVS_DR服务器配置
+
+#安装ipvsadm
+cd /tmp
+tar -zxvf ipvsadm-1.21.tar.gz
+cd ipvsadm-1.21
+make
+make install
+
+#建立NFS
+mkdir /etc/lvs
+#修改/etc/exports
+/tmp 192.168.1.10(rw)
+/tmp 192.168.1.11(rw)
+
+/etc/lvs 192.168.1.10
+/etc/lvs 192.168.1.11
+#重启NFS
+/etc/rc.d/init.d/nfs restart
+
+#修改/etc/rc.d/rc.local,加入:
+/etc/lvs/lvs_dr_lvs
+
+#建立/etc/lvs/lvs_dr_lvs
+#!/bin/bash
+#set ip_forward OFF for vs-dr director (1 on, 0 off)
+cat   /proc/sys/net/ipv4/ip_forward
+echo 0 >/proc/sys/net/ipv4/ip_forward
+
+#director is not gw for realservers: leave icmp redirects on
+echo 'setting icmp redirects (1 on, 0 off) '
+echo 1 >/proc/sys/net/ipv4/conf/all/send_redirects
+cat    /proc/sys/net/ipv4/conf/all/send_redirects
+echo 1 >/proc/sys/net/ipv4/conf/default/send_redirects
+cat    /proc/sys/net/ipv4/conf/default/send_redirects
+echo 1 >/proc/sys/net/ipv4/conf/eth0/send_redirects
+cat    /proc/sys/net/ipv4/conf/eth0/send_redirects
+
+#set VIP
+/sbin/ifconfig eth0:0 192.168.1.8 broadcast 192.168.1.8 netmask 255.255.255.255 up
+/sbin/route add -host 192.168.1.8 dev eth0:0
+
+/sbin/ifconfig eth0:0
+
+#check VIP 192.168.1.8 is reachable from self (director)
+/bin/ping -c 1 192.168.1.8
+
+/bin/netstat -rn
+
+#set VIP IPVS
+/sbin/ipvsadm -C
+/sbin/ipvsadm -A -t 192.168.1.8:www -s rr
+
+#forward www to realserver using direct routing with weight 1
+/sbin/ipvsadm -a -t 192.168.1.8:www -r 192.168.1.10 -g -w 1
+ping -c 1 192.168.1.10
+
+#forward telnet to realserver using direct routing with weight 1
+/sbin/ipvsadm -a -t 192.168.1.8:www -r 192.168.1.11 -g -w 1
+ping -c 1 192.168.1.11
+
+#show ipvs info
+/sbin/ipvsadm
+
+#建立/etc/lvs/lvs_dr_rs
+#!/bin/bash
+#installing default gw 192.168.7.254 for vs-dr
+/sbin/route add default gw 192.168.1.1
+#showing routing table
+/bin/netstat -rn
+#checking if DEFAULT_GW 192.168.1.1 is reachable
+ping -c 1 192.168.1.1
+
+#set_realserver_ip_forwarding to OFF (1 on, 0 off).
+echo 0 >/proc/sys/net/ipv4/ip_forward
+cat    /proc/sys/net/ipv4/ip_forward
+
+#looking for DIP 192.168.1.80
+ping -c 1 192.168.1.80
+
+#looking for VIP (will be on director)
+ping -c 1 192.168.1.8
+
+#install_realserver_vip
+/sbin/ifconfig lo:0 192.168.1.8 broadcast 192.168.1.8 netmask 255.255.255.255 up
+#ifconfig output
+/sbin/ifconfig lo:0
+#installing route for VIP 192.168.0.8 on device lo:0
+/sbin/route add -host 192.168.1.8 dev lo:0
+#listing routing info for VIP 192.168.1.8
+/bin/netstat -rn
+
+#hiding interface lo:110, will not arp
+echo 1 >/proc/sys/net/ipv4/conf/all/hidden
+cat    /proc/sys/net/ipv4/conf/all/hidden
+echo 1 >/proc/sys/net/ipv4/conf/lo/hidden
+cat    /proc/sys/net/ipv4/conf/lo/hidden
+
+三、LVS_RS服务器配置
+
+#修改/etc/rc.d/rc.local,加入:
+mount 192.168.1.80:/tmp /mnt/lvs
+mount 192.168.1.80:/etc/lvs /etc/lvs
+
+/etc/lvs/lvs_dr_rs
+
+/usr/local/apache/bin/apachectl start
+
+#Win2K Server的设置
+#增加Loopback网卡设备
+#设置IP为192.168.1.8/24
+#进入dos模式
+#命令：route delete 192.168.1.0 MASK 255.255.255.0 192.168.1.8
+
+
+
+
+
+$TEST
+#!/bin/bash
+#installing default gw 192.168.7.254 for vs-dr
+#/sbin/route add default gw 192.168.1.1
+#showing routing table
+#/bin/netstat -rn
+#checking if DEFAULT_GW 192.168.1.1 is reachable
+#ping -c 1 192.168.1.1
+
+#set_realserver_ip_forwarding to OFF (1 on, 0 off).
+echo 0 >/proc/sys/net/ipv4/ip_forward
+cat    /proc/sys/net/ipv4/ip_forward
+
+#looking for DIP 192.168.1.80
+#ping -c 1 192.168.1.80
+
+#looking for VIP (will be on director)
+#ping -c 1 192.168.1.8
+
+#install_realserver_vip
+/sbin/ifconfig lo:0 10.0.17.20 broadcast 10.0.17.20 netmask 255.255.255.255 up
+#ifconfig output
+/sbin/ifconfig lo:0
+#installing route for VIP 192.168.0.8 on device lo:0
+/sbin/route add -host 10.0.17.20 dev lo:0
+#listing routing info for VIP 192.168.1.8
+/bin/netstat -rn
+
+#hiding interface lo:110, will not arp
+echo 1 >/proc/sys/net/ipv4/conf/all/hidden
+cat    /proc/sys/net/ipv4/conf/all/hidden
+echo 1 >/proc/sys/net/ipv4/conf/lo/hidden
+cat    /proc/sys/net/ipv4/conf/lo/hidden
+
+
+
+
+
+
+
+
+
+
+
+#########################
+#Kernel 2.6.9版本配置（RH AS4）
+#########################
+cd /pkg
+wget http://www.linuxvirtualserver.org/software/kernel-2.6/ipvsadm-1.24.tar.gz
+tar -zxvf ipvsadm-1.24.tar.gz
+cd /pkg/ipvsadm-1.24
+
+解压后修改ipvsadm-1.24的根目录和libipvs目录的Makefile文件
+根目录下Makefile
+#INCLUDE	= -I/usr/src/linux/include -I.. -I.
+INCLUDE		= -I/usr/src/kernels/2.6.9-22.EL-i686/include -I.. -I.
+libipvs目录下Makefile
+#INCLUDE	= -I/usr/src/linux/include
+INCLUDE		= -I/usr/src/kernels/2.6.9-22.EL-i686/include
+
+make
+make install
+
+#执行ipvsadm
+ipvsadm
+显示如下内容，表示正常
+IP Virtual Server version 1.2.0 (size=4096)
+Prot LocalAddress:Port Scheduler Flags
+  -> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+
+3. 配置LVS 
+
+(1)DIP：192.168.1.208
+
+#修改内核运行参数，即修改/etc/sysctl.conf文件的内容如下：
+net.ipv4.ip_forward = 0 
+net.ipv4.conf.all.send_redirects = 1
+net.ipv4.conf.default.send_redirects = 1
+net.ipv4.conf.eth0.send_redirects = 1
+
+#然后执行下面的命令是对内核修改的参数立即生效：
+sysctl -p
+
+#配置DIP地址：
+eth0
+IP：192.168.1.208
+MASK：255.255.255.0
+BC：192.168.1.255
+GW：192.168.1.1
+
+#配置VIP地址：
+/sbin/ifconfig lo:0 192.168.1.8 broadcast 192.168.1.8 netmask 255.255.255.255 up
+/sbin/route add -host 192.168.1.8 dev lo:0
+
+#清除ipvsadm表:
+/sbin/ipvsadm -C
+
+#使用ipvsadm安装LVS服务：
+/sbin/ipvsadm -A -t 192.168.1.8:http -s rr -p 3600
+
+#增加realserver：
+#forward http to realserver using direct routing with weight 1
+/sbin/ipvsadm -a -t 192.168.1.8:http -r 192.168.1.100 -g -w 1
+/sbin/ipvsadm -a -t 192.168.1.8:http -r 192.168.1.218 -g -w 1
+
+
+#示例：
+/sbin/ipvsadm -C
+/sbin/ipvsadm -A -t 192.168.1.8:http -s rr
+/sbin/ipvsadm -a -t 192.168.1.8:http -r 192.168.1.100 -g -w 1
+/sbin/ipvsadm -a -t 192.168.1.8:http -r 192.168.1.218 -g -w 1
+
+
+(2)配置RS，RIP：192.168.1.100、192.168.1.218
+
+#修改内核运行参数，即修改/etc/sysctl.conf文件的内容如下：
+net.ipv4.ip_forward = 0
+net.ipv4.conf.lo.arp_ignore = 1
+net.ipv4.conf.lo.arp_announce = 2
+net.ipv4.conf.all.arp_ignore = 1
+net.ipv4.conf.all.arp_announce = 2
+
+#然后执行下面的命令是对内核修改的参数立即生效：
+sysctl -p
+
+#配置RS0的VIP地址：192.168.1.100
+/sbin/ifconfig lo:0 192.168.1.8 broadcast 192.168.1.8 netmask 255.255.255.255 up
+/sbin/route add -host 192.168.1.8 dev lo:0
+
+#配置RS1的VIP地址：192.168.1.218
+/sbin/ifconfig eth1:0 192.168.1.8 broadcast 192.168.1.8 netmask 255.255.255.255 up
+/sbin/route add -host 192.168.1.8 dev eth1:0
+
+
+(3)测试
+在客户端使用浏览器多次访问：http://192.168.1.8/，然后再192.168.1.8上运行ipvsadm命令，应该有类似下面的输出：
+
+IP Virtual Server version 1.2.0 (size=4096)
+Prot LocalAddress:Port Scheduler Flags
+  -> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+TCP  192.168.1.8:http rr
+  -> 192.168.1.100:http           Route   1      0          28        
+  -> 192.168.1.218:http           Route   1      0          29               
